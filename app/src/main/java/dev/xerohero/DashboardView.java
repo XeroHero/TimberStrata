@@ -1,5 +1,6 @@
 package dev.xerohero;
 
+import com.google.inject.Inject;
 import javafx.application.Platform;
 import javafx.collections.MapChangeListener;
 import javafx.collections.ObservableList;
@@ -10,7 +11,9 @@ import javafx.scene.canvas.GraphicsContext;
 import javafx.scene.control.*;
 import javafx.scene.control.cell.CheckBoxTableCell;
 import javafx.scene.image.WritableImage;
-import javafx.scene.layout.*;
+import javafx.scene.layout.BorderPane;
+import javafx.scene.layout.HBox;
+import javafx.scene.layout.VBox;
 import javafx.scene.paint.Color;
 import javafx.scene.shape.StrokeLineCap;
 import javafx.scene.shape.StrokeLineJoin;
@@ -19,7 +22,6 @@ import javafx.stage.Stage;
 
 import java.io.File;
 
-import static javafx.collections.FXCollections.observableArrayList;
 import static javafx.geometry.Pos.CENTER_LEFT;
 import static javafx.scene.layout.Priority.ALWAYS;
 
@@ -36,6 +38,8 @@ public class DashboardView extends BorderPane {
     private Label activeFileLabel;
     private VBox sidebarCardContainer;
 
+    // The @Inject annotation tells Guice to look at the parameters and fill them automatically
+    @Inject
     public DashboardView(ObservableList<LogEntry> logData, MetricRegistry metrics,
                          LogDirectoryWatcher watcher, DockerEngineManager dockerManager) {
         this.logData = logData;
@@ -233,5 +237,7 @@ public class DashboardView extends BorderPane {
         });
     }
 
-    public Label getEngineStatusLabel() { return engineStatusLabel; }
+    public Label getEngineStatusLabel() {
+        return engineStatusLabel;
+    }
 }

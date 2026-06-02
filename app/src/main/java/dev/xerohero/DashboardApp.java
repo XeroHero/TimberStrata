@@ -1,35 +1,44 @@
 package dev.xerohero;
 
+import com.google.inject.Guice;
+import com.google.inject.Injector;
 import javafx.animation.KeyFrame;
 import javafx.animation.Timeline;
 import javafx.application.Application;
-import javafx.collections.ObservableList;
 import javafx.scene.Scene;
 import javafx.stage.Stage;
 import javafx.util.Duration;
 
-import static javafx.collections.FXCollections.observableArrayList;
-
 public class DashboardApp extends Application {
 
-    private final ObservableList<LogEntry> logData = observableArrayList();
-    private final MetricRegistry metrics = new MetricRegistry();
-    private final LogDirectoryWatcher watcher = new LogDirectoryWatcher(logData, metrics);
-    private final DockerEngineManager dockerManager = new DockerEngineManager("timberstrata");
+    private Injector injector;
+    private LogDirectoryWatcher watcher;
+    private DockerEngineManager dockerManager;
     private Timeline dockerHeartbeat;
+
+    @Override
+    public void init() {
+        // 1. Initialize the Guice object container context before the UI layer spins up
+        injector = Guice.createInjector(new TimberStrataModule());
+
+        // 2. Extract references needed directly by our lifecycle controls
+        watcher = injector.getInstance(LogDirectoryWatcher.class);
+        dockerManager = injector.getInstance(DockerEngineManager.class);
+    }
 
     @Override
     public void start(Stage primaryStage) {
         primaryStage.setTitle("🌲 TimberStrata Dashboard");
 
-        // 1. Initialize the layout view passing down decoupled engine contexts
-        DashboardView view = new DashboardView(logData, metrics, watcher, dockerManager);
+        // 3. Ask Guice to instantiate the view. It will automatically build and
+        // inject the list, registry, watcher, and docker manager behind the scenes!
+        DashboardView view = injector.getInstance(DashboardView.class);
         view.initializeView(primaryStage);
 
         primaryStage.setScene(new Scene(view, 950, 550));
         primaryStage.show();
 
-        // 2. Optimized Docker Heartbeat: Runs safely on the JavaFX Application Thread
+        // 4. Docker Heartbeat (Safe UI Timeline)
         dockerHeartbeat = new Timeline(new KeyFrame(Duration.seconds(2), event -> {
             boolean running = dockerManager.isContainerRunning();
             view.getEngineStatusLabel().setText(running ? "Status: Active" : "Status: Offline");
@@ -38,10 +47,10 @@ public class DashboardApp extends Application {
         dockerHeartbeat.setCycleCount(Timeline.INDEFINITE);
         dockerHeartbeat.play();
 
-        // 3. Fire up the hardened background file IO streaming loop
+        // 5. Fire up the background filesystem streaming thread
         watcher.startLoop();
 
-        // 4. Hardened Lifecycle Teardown: Cleanly stop all engine attachments on exit
+        // 6. Hardened Lifecycle Teardown
         primaryStage.setOnCloseRequest(event -> {
             System.out.println("Stopping background streaming services...");
             if (dockerHeartbeat != null) {

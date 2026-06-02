@@ -1,7 +1,9 @@
 package dev.xerohero;
 
+import com.google.inject.Inject;
 import javafx.application.Platform;
 import javafx.collections.ObservableList;
+
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
@@ -16,12 +18,12 @@ public class LogDirectoryWatcher {
     private final ObservableList<LogEntry> logData;
     private final MetricRegistry metrics;
     private final Map<Path, Long> fileSizesMap = new ConcurrentHashMap<>();
-
+    private final AtomicBoolean isRunning = new AtomicBoolean(false);
     private volatile Path activeDirectoryPath = null;
     private WatchService watchService;
-    private final AtomicBoolean isRunning = new AtomicBoolean(false);
     private Thread workerThread;
 
+    @Inject
     public LogDirectoryWatcher(ObservableList<LogEntry> logData, MetricRegistry metrics) {
         this.logData = logData;
         this.metrics = metrics;
@@ -45,7 +47,9 @@ public class LogDirectoryWatcher {
     }
 
     public synchronized void startLoop() {
-        if (isRunning.getAndSet(true)) { return; }
+        if (isRunning.getAndSet(true)) {
+            return;
+        }
 
         workerThread = new Thread(() -> {
             Path currentDirectory = null;
@@ -70,10 +74,14 @@ public class LogDirectoryWatcher {
                     }
 
                     WatchKey key = watchService.poll(500, TimeUnit.MILLISECONDS);
-                    if (key == null) { continue; }
+                    if (key == null) {
+                        continue;
+                    }
 
                     for (WatchEvent<?> event : key.pollEvents()) {
-                        if (event.kind() == StandardWatchEventKinds.OVERFLOW) { continue; }
+                        if (event.kind() == StandardWatchEventKinds.OVERFLOW) {
+                            continue;
+                        }
 
                         Path fullPath = currentDirectory.resolve((Path) event.context());
                         if (Files.isRegularFile(fullPath)) {
@@ -112,12 +120,17 @@ public class LogDirectoryWatcher {
     public synchronized void stopLoop() {
         isRunning.set(false);
         safelyCloseWatchService();
-        if (workerThread != null) { workerThread.interrupt(); }
+        if (workerThread != null) {
+            workerThread.interrupt();
+        }
     }
 
     private void safelyCloseWatchService() {
         if (watchService != null) {
-            try { watchService.close(); } catch (IOException ignored) {}
+            try {
+                watchService.close();
+            } catch (IOException ignored) {
+            }
         }
     }
 
@@ -143,7 +156,9 @@ public class LogDirectoryWatcher {
                         metrics.evaluateEntry(entry);
 
                         // Memory Ceiling Guard
-                        if (logData.size() > 2000) { logData.remove(logData.size() - 1); }
+                        if (logData.size() > 2000) {
+                            logData.remove(logData.size() - 1);
+                        }
                     });
                 }
             }
