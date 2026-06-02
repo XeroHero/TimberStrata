@@ -35,7 +35,8 @@ public class MetricRegistry {
         }
 
         customCounters.forEach((targetTag, property) -> {
-            // Strict exact evaluation on severity level; standard substring containment checking on deep message values
+            // 1. Exact match for the strict severity level
+            // 2. Loose substring match for the broader message body and logger fields
             if (severity.equals(targetTag) || message.contains(targetTag) || logger.contains(targetTag)) {
                 property.set(property.get() + 1);
             }
