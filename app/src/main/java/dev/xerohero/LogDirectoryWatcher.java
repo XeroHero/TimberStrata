@@ -4,18 +4,23 @@ import javafx.application.Platform;
 import javafx.collections.ObservableList;
 import java.io.BufferedReader;
 import java.io.File;
+import java.io.IOException;
 import java.nio.file.*;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Stream;
 
 public class LogDirectoryWatcher {
     private final ObservableList<LogEntry> logData;
     private final MetricRegistry metrics;
     private final Map<Path, Long> fileSizesMap = new ConcurrentHashMap<>();
+
     private volatile Path activeDirectoryPath = null;
     private WatchService watchService;
+    private final AtomicBoolean isRunning = new AtomicBoolean(false);
+    private Thread workerThread;
 
     public LogDirectoryWatcher(ObservableList<LogEntry> logData, MetricRegistry metrics) {
         this.logData = logData;
@@ -28,68 +33,122 @@ public class LogDirectoryWatcher {
 
         try (Stream<Path> stream = Files.list(activeDirectoryPath)) {
             stream.filter(Files::isRegularFile).forEach(p -> {
-                try { fileSizesMap.put(p, Files.size(p)); } catch (Exception ignored) {}
+                try {
+                    fileSizesMap.put(p, Files.size(p));
+                } catch (IOException e) {
+                    System.err.println("⚠️ Could not read initial size for: " + p.getFileName());
+                }
             });
-        } catch (Exception e) {
-            System.err.println("Indexing error: " + e.getMessage());
+        } catch (IOException e) {
+            System.err.println("❌ Critical indexing error on directory swap: " + e.getMessage());
         }
     }
 
-    public void startLoop() {
-        Thread worker = new Thread(() -> {
+    public synchronized void startLoop() {
+        if (isRunning.getAndSet(true)) { return; }
+
+        workerThread = new Thread(() -> {
             Path currentDirectory = null;
-            while (true) {
+
+            while (isRunning.get()) {
                 try {
                     if (activeDirectoryPath != currentDirectory) {
                         currentDirectory = activeDirectoryPath;
                         if (currentDirectory != null) {
-                            if (watchService != null) watchService.close();
+                            safelyCloseWatchService();
                             watchService = FileSystems.getDefault().newWatchService();
-                            currentDirectory.register(watchService, StandardWatchEventKinds.ENTRY_MODIFY);
+                            currentDirectory.register(watchService,
+                                    StandardWatchEventKinds.ENTRY_MODIFY,
+                                    StandardWatchEventKinds.ENTRY_CREATE
+                            );
                         }
                     }
-                    if (currentDirectory == null) { Thread.sleep(1500); continue; }
 
-                    WatchKey key = watchService.poll(1, TimeUnit.SECONDS);
-                    if (key != null) {
-                        for (WatchEvent<?> event : key.pollEvents()) {
-                            if (event.kind() == StandardWatchEventKinds.ENTRY_MODIFY) {
-                                Path fullPath = currentDirectory.resolve((Path) event.context());
-                                if (Files.isRegularFile(fullPath)) {
-                                    long currentSize = Files.size(fullPath);
-                                    long knownSize = fileSizesMap.getOrDefault(fullPath, 0L);
+                    if (currentDirectory == null) {
+                        TimeUnit.MILLISECONDS.sleep(500);
+                        continue;
+                    }
 
-                                    if (currentSize > knownSize) {
-                                        parseNewLines(fullPath, knownSize);
-                                        fileSizesMap.put(fullPath, currentSize);
-                                    }
-                                }
+                    WatchKey key = watchService.poll(500, TimeUnit.MILLISECONDS);
+                    if (key == null) { continue; }
+
+                    for (WatchEvent<?> event : key.pollEvents()) {
+                        if (event.kind() == StandardWatchEventKinds.OVERFLOW) { continue; }
+
+                        Path fullPath = currentDirectory.resolve((Path) event.context());
+                        if (Files.isRegularFile(fullPath)) {
+                            long currentSize = Files.size(fullPath);
+                            long knownSize = fileSizesMap.getOrDefault(fullPath, 0L);
+
+                            if (currentSize > knownSize) {
+                                parseNewLines(fullPath, knownSize);
+                                fileSizesMap.put(fullPath, currentSize);
                             }
                         }
-                        key.reset();
                     }
-                } catch (Exception e) { System.err.println("Watch Core issue: " + e.getMessage()); }
+
+                    boolean valid = key.reset();
+                    if (!valid) {
+                        System.err.println("⚠️ Watch key invalid. Resetting target.");
+                        activeDirectoryPath = null;
+                    }
+
+                } catch (ClosedWatchServiceException e) {
+                    System.out.println("ℹ️ WatchService closed cleanly during reconfiguration.");
+                } catch (InterruptedException e) {
+                    System.err.println("⚠️ Background worker loop interrupted. Stopping.");
+                    isRunning.set(false);
+                    Thread.currentThread().interrupt();
+                } catch (Exception e) {
+                    System.err.println("💥 Unexpected watch core failure: " + e.getMessage());
+                }
             }
-        });
-        worker.setDaemon(true);
-        worker.start();
+        }, "TimberStrata-Watcher-Daemon");
+
+        workerThread.setDaemon(true);
+        workerThread.start();
+    }
+
+    public synchronized void stopLoop() {
+        isRunning.set(false);
+        safelyCloseWatchService();
+        if (workerThread != null) { workerThread.interrupt(); }
+    }
+
+    private void safelyCloseWatchService() {
+        if (watchService != null) {
+            try { watchService.close(); } catch (IOException ignored) {}
+        }
     }
 
     private void parseNewLines(Path path, long skipBytes) {
         try (BufferedReader reader = Files.newBufferedReader(path)) {
-            reader.skip(skipBytes);
+            long skipped = 0;
+            while (skipped < skipBytes) {
+                long currentSkip = reader.skip(skipBytes - skipped);
+                if (currentSkip <= 0) break;
+                skipped += currentSkip;
+            }
+
             String line;
             while ((line = reader.readLine()) != null) {
                 if (line.trim().isEmpty()) continue;
+
                 Map<String, String> parsed = LogParser.parseLine(line);
                 if (parsed != null) {
                     LogEntry entry = new LogEntry(parsed.get("timestamp"), parsed.get("level"), parsed.get("logger"), parsed.get("message"));
+
                     Platform.runLater(() -> {
                         logData.add(0, entry);
                         metrics.evaluateEntry(entry);
+
+                        // Memory Ceiling Guard
+                        if (logData.size() > 2000) { logData.remove(logData.size() - 1); }
                     });
                 }
             }
-        } catch (Exception ignored) {}
+        } catch (IOException e) {
+            System.err.println("⚠️ Failed reading log data delta: " + e.getMessage());
+        }
     }
 }
