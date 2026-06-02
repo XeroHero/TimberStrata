@@ -1,11 +1,11 @@
 package dev.xerohero;
 
+import com.google.inject.Inject;
 import javafx.application.Platform;
 import javafx.collections.ObservableList;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
-import java.io.InputStreamReader;
 import java.nio.file.*;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -22,10 +22,13 @@ public class LogDirectoryWatcher {
     private WatchService watchService;
     private final AtomicBoolean isRunning = new AtomicBoolean(false);
     private Thread workerThread;
+    private final AppConfig config;
 
-    public LogDirectoryWatcher(ObservableList<LogEntry> logData, MetricRegistry metrics) {
+    @Inject
+    public LogDirectoryWatcher(ObservableList<LogEntry> logData, MetricRegistry metrics, AppConfig config) {
         this.logData = logData;
         this.metrics = metrics;
+        this.config = config;
     }
 
     /**
@@ -35,7 +38,6 @@ public class LogDirectoryWatcher {
         activeDirectoryPath = directory.toPath();
         fileSizesMap.clear();
 
-        // Safe resource management when indexing existing files
         try (Stream<Path> stream = Files.list(activeDirectoryPath)) {
             stream.filter(Files::isRegularFile).forEach(p -> {
                 try {
@@ -81,15 +83,15 @@ public class LogDirectoryWatcher {
                         continue;
                     }
 
-                    // A short, bounded poll ensures the thread checks the `isRunning` flag frequently
-                    WatchKey key = watchService.poll(500, TimeUnit.MILLISECONDS);
+                    // Dynamic pull timeout safely localized inside our active execution loop block
+                    int pollTimeout = config.getInt("watcher.poll.ms", 500);
+                    WatchKey key = watchService.poll(pollTimeout, TimeUnit.MILLISECONDS);
                     if (key == null) {
                         continue;
                     }
 
                     for (WatchEvent<?> event : key.pollEvents()) {
-                        WatchEvent.Kind<?> kind = event.kind();
-                        if (kind == StandardWatchEventKinds.OVERFLOW) {
+                        if (event.kind() == StandardWatchEventKinds.OVERFLOW) {
                             continue;
                         }
 
@@ -107,7 +109,6 @@ public class LogDirectoryWatcher {
                         }
                     }
 
-                    // Reset key and check validity. If invalid, the watched directory might have been deleted.
                     boolean valid = key.reset();
                     if (!valid) {
                         System.err.println("⚠️ Watch key became invalid. Resetting tracking target.");
@@ -115,7 +116,6 @@ public class LogDirectoryWatcher {
                     }
 
                 } catch (ClosedWatchServiceException e) {
-                    // This is expected when we tear down or swap the watch service. Break silently or log softly.
                     System.out.println("ℹ️ WatchService closed cleanly during reconfiguration.");
                 } catch (InterruptedException e) {
                     System.err.println("⚠️ Background worker loop interrupted thread context. Shutting down.");
@@ -158,7 +158,7 @@ public class LogDirectoryWatcher {
             long skipped = 0;
             while (skipped < skipBytes) {
                 long currentSkip = reader.skip(skipBytes - skipped);
-                if (currentSkip <= 0) break; // End of file or error safety handle
+                if (currentSkip <= 0) break;
                 skipped += currentSkip;
             }
 
@@ -176,12 +176,13 @@ public class LogDirectoryWatcher {
                     );
 
                     Platform.runLater(() -> {
-                        // Thread-safe update bound to JavaFX rendering loop
+                        // All modifications to logData MUST run inside the FX Application Thread
                         logData.add(0, entry);
                         metrics.evaluateEntry(entry);
 
-                        // Prevent heap allocation explosion: limit table buffer memory pool
-                        if (logData.size() > 2000) {
+                        // Memory guard driven safely by properties
+                        int maxRows = config.getInt("ui.table.max-rows", 2000);
+                        if (logData.size() > maxRows) {
                             logData.remove(logData.size() - 1);
                         }
                     });

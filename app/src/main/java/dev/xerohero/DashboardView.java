@@ -1,5 +1,6 @@
 package dev.xerohero;
 
+import com.google.inject.Inject;
 import javafx.application.Platform;
 import javafx.collections.MapChangeListener;
 import javafx.collections.ObservableList;
@@ -19,7 +20,6 @@ import javafx.stage.Stage;
 
 import java.io.File;
 
-import static javafx.collections.FXCollections.observableArrayList;
 import static javafx.geometry.Pos.CENTER_LEFT;
 import static javafx.scene.layout.Priority.ALWAYS;
 
@@ -36,6 +36,7 @@ public class DashboardView extends BorderPane {
     private Label activeFileLabel;
     private VBox sidebarCardContainer;
 
+    @Inject
     public DashboardView(ObservableList<LogEntry> logData, MetricRegistry metrics,
                          LogDirectoryWatcher watcher, DockerEngineManager dockerManager) {
         this.logData = logData;
@@ -44,9 +45,6 @@ public class DashboardView extends BorderPane {
         this.dockerManager = dockerManager;
     }
 
-    /**
-     * Constructs and arranges the visual component tree hierarchy.
-     */
     public void initializeView(Stage stage) {
         // --- Generate Programmatic Vector Icon ---
         try {
@@ -120,7 +118,6 @@ public class DashboardView extends BorderPane {
         errorCard.getChildren().add(errorCountLabel);
         sidebarCardContainer.getChildren().add(errorCard);
 
-        // Bind standard error metrics directly to model modifications reactively
         metrics.errorCountProperty().addListener((obs, old, newVal) ->
                 errorCountLabel.setText("🚨 Errors: " + newVal)
         );
@@ -133,7 +130,7 @@ public class DashboardView extends BorderPane {
         addTagBtn.setMaxWidth(Double.MAX_VALUE);
         addTagBtn.setOnAction(e -> metrics.registerTag(customTagField.getText()));
 
-        // Explicitly typed listener tracking map mutations cleanly to satisfy the compiler
+        // Explicitly typed MapChangeListener tracking metrics mutations cleanly
         MapChangeListener<String, javafx.beans.property.IntegerProperty> counterListener = change -> {
             if (change.wasAdded()) {
                 String tag = change.getKey();
@@ -184,7 +181,6 @@ public class DashboardView extends BorderPane {
 
         table.getColumns().addAll(colMarked, colTime, colLevel, colMsg);
 
-        // Setup filter predicate text processing loops
         TextField searchField = new TextField();
         searchField.setPromptText("🔍 Quick filter text...");
         searchField.textProperty().addListener((obs, old, nv) -> filteredLogData.setPredicate(entry -> {
@@ -196,7 +192,6 @@ public class DashboardView extends BorderPane {
                     entry.loggerProperty().get().toLowerCase().contains(f);
         }));
 
-        // Dynamic row color bindings with row-recycling empty checks fixed
         table.setRowFactory(tv -> new TableRow<>() {
             @Override
             protected void updateItem(LogEntry item, boolean empty) {
@@ -219,14 +214,13 @@ public class DashboardView extends BorderPane {
         VBox.setVgrow(table, ALWAYS);
         centerLayout.setPadding(new Insets(10));
 
-        // Assemble content sub-nodes onto our root layout container
         this.setTop(topBar);
         this.setLeft(sidebar);
         this.setCenter(centerLayout);
 
-        // --- Action Configurations connected to decoupled services ---
-        startBtn.setOnAction(e -> dockerManager.executeCommand("docker start timberstrata"));
-        stopBtn.setOnAction(e -> dockerManager.executeCommand("docker stop timberstrata"));
+        // --- Action Configurations ---
+        startBtn.setOnAction(e -> dockerManager.executeCommand("docker start " + dockerManager.isContainerRunning()));
+        stopBtn.setOnAction(e -> dockerManager.executeCommand("docker stop " + dockerManager.isContainerRunning()));
 
         chooseFileBtn.setOnAction(e -> {
             DirectoryChooser chooser = new DirectoryChooser();
@@ -240,8 +234,5 @@ public class DashboardView extends BorderPane {
         });
     }
 
-    // Expose structural component tracking handlers safely for background loops to tap into
-    public Label getEngineStatusLabel() {
-        return engineStatusLabel;
-    }
+    public Label getEngineStatusLabel() { return engineStatusLabel; }
 }
