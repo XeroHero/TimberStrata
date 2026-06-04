@@ -1,5 +1,7 @@
 package dev.xerohero;
 
+import dev.xerohero.core.LogEntry;
+import dev.xerohero.core.MetricRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;

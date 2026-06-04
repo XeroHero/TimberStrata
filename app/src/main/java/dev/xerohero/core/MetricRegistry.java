@@ -1,4 +1,4 @@
-package dev.xerohero;
+package dev.xerohero.core;
 
 import javafx.beans.property.IntegerProperty;
 import javafx.beans.property.SimpleIntegerProperty;

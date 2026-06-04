@@ -1,4 +1,4 @@
-package dev.xerohero;
+package dev.xerohero.core;
 
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;

@@ -1,4 +1,4 @@
-package dev.xerohero;
+package dev.xerohero.core;
 
 import javafx.application.Application;
 import javafx.application.Platform;

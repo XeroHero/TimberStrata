@@ -1,4 +1,4 @@
-package dev.xerohero;
+package dev.xerohero.core;
 
 import javafx.application.Platform;
 import javafx.collections.ObservableList;

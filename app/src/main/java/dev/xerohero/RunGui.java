@@ -1,5 +1,7 @@
 package dev.xerohero;
 
+import dev.xerohero.core.DashboardApp;
+
 import java.awt.Taskbar;
 import java.awt.image.BufferedImage;
 import java.awt.Graphics2D;

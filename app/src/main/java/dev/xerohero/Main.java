@@ -1,5 +1,7 @@
 package dev.xerohero;
 
+import dev.xerohero.core.LogParser;
+
 import java.io.BufferedReader;
 import java.io.FileReader;
 import java.io.IOException;
