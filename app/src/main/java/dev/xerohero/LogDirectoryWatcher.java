@@ -17,6 +17,9 @@ public class LogDirectoryWatcher {
     private volatile Path activeDirectoryPath = null;
     private WatchService watchService;
 
+    // Persistent tracker for current multi-line exception targets
+    private LogEntry lastEntry = null;
+
     public LogDirectoryWatcher(ObservableList<LogEntry> logData, MetricRegistry metrics) {
         this.logData = logData;
         this.metrics = metrics;
@@ -25,13 +28,11 @@ public class LogDirectoryWatcher {
     public void changeWatchedDirectory(File directory) {
         activeDirectoryPath = directory.toPath();
         fileSizesMap.clear();
+        lastEntry = null;
 
         try (Stream<Path> stream = Files.list(activeDirectoryPath)) {
             stream.filter(Files::isRegularFile).forEach(p -> {
-                try {
-                    // Index initial sizes so we only grab *new* lines
-                    fileSizesMap.put(p, Files.size(p));
-                } catch (Exception ignored) {}
+                try { fileSizesMap.put(p, Files.size(p)); } catch (Exception ignored) {}
             });
         } catch (Exception e) {
             System.err.println("Indexing error: " + e.getMessage());
@@ -51,13 +52,8 @@ public class LogDirectoryWatcher {
                             currentDirectory.register(watchService, StandardWatchEventKinds.ENTRY_MODIFY);
                         }
                     }
+                    if (currentDirectory == null) { Thread.sleep(1000); continue; }
 
-                    if (currentDirectory == null) {
-                        Thread.sleep(1000);
-                        continue;
-                    }
-
-                    // 1. Check OS Event Bus
                     WatchKey key = watchService.poll(500, TimeUnit.MILLISECONDS);
                     if (key != null) {
                         for (WatchEvent<?> event : key.pollEvents()) {
@@ -69,15 +65,10 @@ public class LogDirectoryWatcher {
                         key.reset();
                     }
 
-                    // 2. macOS Fallback: Directly scan files in the directory
-                    // to bypass native file system event batching delays!
                     try (Stream<Path> stream = Files.list(currentDirectory)) {
                         stream.filter(Files::isRegularFile).forEach(this::checkAndParseFile);
                     }
-
-                } catch (Exception e) {
-                    System.err.println("Watch Core issue: " + e.getMessage());
-                }
+                } catch (Exception e) { System.err.println("Watch Core issue: " + e.getMessage()); }
             }
         });
         worker.setDaemon(true);
@@ -94,7 +85,6 @@ public class LogDirectoryWatcher {
                     parseNewLinesWithSeek(fullPath, knownSize);
                     fileSizesMap.put(fullPath, currentSize);
                 } else if (currentSize < knownSize) {
-                    // File was truncated or cleared down -> reset tracker pointer
                     fileSizesMap.put(fullPath, currentSize);
                 }
             }
@@ -102,33 +92,52 @@ public class LogDirectoryWatcher {
     }
 
     private void parseNewLinesWithSeek(Path path, long seekOffset) {
-        // Using RandomAccessFile ensures accurate physical byte seeks on disk
+        System.out.println("🔄 [WATCHER RUN] Triggered for: " + path.getFileName() + " at offset: " + seekOffset);
         try (RandomAccessFile raf = new RandomAccessFile(path.toFile(), "r")) {
             raf.seek(seekOffset);
             String line;
+
             while ((line = raf.readLine()) != null) {
-                if (line.trim().isEmpty()) continue;
+                if (line.trim().isEmpty()) {
+                    System.out.println("ℹ️ [WATCHER] Skipped empty or whitespace line.");
+                    continue;
+                }
 
-                // Convert ISO-8859-1 string back to crisp UTF-8 for Mac compatibility
                 String utf8Line = new String(line.getBytes("ISO-8859-1"), "UTF-8");
+                System.out.println("📖 [WATCHER RAW READ]: " + utf8Line);
 
-                System.out.println("📬 WATCHER READ LINE: " + utf8Line);
                 Map<String, String> parsed = LogParser.parseLine(utf8Line);
+
                 if (parsed != null) {
+                    System.out.println("✅ [WATCHER MATCH] Header detected! Level: " + parsed.get("level"));
                     LogEntry entry = new LogEntry(
                             parsed.get("timestamp"),
                             parsed.get("level"),
                             parsed.get("logger"),
                             parsed.get("message")
                     );
+                    lastEntry = entry;
+
                     Platform.runLater(() -> {
                         logData.add(entry);
                         metrics.evaluateEntry(entry);
                     });
+                } else {
+                    System.out.println("❓ [WATCHER NO-MATCH] Checking stack trace state...");
+                    if (lastEntry != null && (utf8Line.startsWith("\t") || utf8Line.startsWith("    ") || utf8Line.trim().startsWith("at "))) {
+                        System.out.println("🔗 [WATCHER AGGREGATE] Appending trace line to: " + lastEntry.timestampProperty().get());
+                        LogEntry target = lastEntry;
+                        String currentMsg = target.messageProperty().get();
+                        String updatedMsg = (currentMsg == null) ? utf8Line : currentMsg + "\n" + utf8Line;
+
+                        Platform.runLater(() -> target.messageProperty().set(updatedMsg));
+                    } else {
+                        System.out.println("❌ [WATCHER DROP] Dropped line completely. (lastEntry status: " + (lastEntry == null ? "NULL" : "ACTIVE") + ")");
+                    }
                 }
             }
         } catch (Exception e) {
-            System.err.println("Error parsing lines via seek: " + e.getMessage());
+            System.err.println("💥 [WATCHER EXCEPTION] Error in seek parsing loop: " + e.getMessage());
+            e.printStackTrace();
         }
-    }
-}
+    }}
