@@ -1,5 +1,7 @@
 package dev.xerohero;
 
+import com.google.inject.Inject;
+import dev.xerohero.ai.AiAnalysisService;
 import javafx.application.Platform;
 import javafx.collections.MapChangeListener;
 import javafx.collections.ObservableList;
@@ -10,16 +12,13 @@ import javafx.scene.canvas.GraphicsContext;
 import javafx.scene.control.*;
 import javafx.scene.control.cell.CheckBoxTableCell;
 import javafx.scene.image.WritableImage;
+import javafx.scene.input.MouseEvent;
 import javafx.scene.layout.*;
 import javafx.scene.paint.Color;
-import javafx.scene.shape.StrokeLineCap;
-import javafx.scene.shape.StrokeLineJoin;
 import javafx.stage.DirectoryChooser;
 import javafx.stage.Stage;
-
 import java.io.File;
 
-import static javafx.collections.FXCollections.observableArrayList;
 import static javafx.geometry.Pos.CENTER_LEFT;
 import static javafx.scene.layout.Priority.ALWAYS;
 
@@ -29,6 +28,8 @@ public class DashboardView extends BorderPane {
     private final MetricRegistry metrics;
     private final LogDirectoryWatcher watcher;
     private final DockerEngineManager dockerManager;
+    private final AiAnalysisService aiService;
+    private final AppConfig config;
 
     private FilteredList<LogEntry> filteredLogData;
     private Label engineStatusLabel;
@@ -36,55 +37,64 @@ public class DashboardView extends BorderPane {
     private Label activeFileLabel;
     private VBox sidebarCardContainer;
 
+    // Auto-Scroll States
+    private boolean autoFollowLatest = true;
+    private Button toggleScrollBtn;
+
+    @Inject
     public DashboardView(ObservableList<LogEntry> logData, MetricRegistry metrics,
-                         LogDirectoryWatcher watcher, DockerEngineManager dockerManager) {
+                         LogDirectoryWatcher watcher, DockerEngineManager dockerManager,
+                         AiAnalysisService aiService, AppConfig config) {
         this.logData = logData;
         this.metrics = metrics;
         this.watcher = watcher;
         this.dockerManager = dockerManager;
+        this.aiService = aiService;
+        this.config = config;
+    }
+
+    private void openInspectorPopup(LogEntry selected) {
+        if (selected == null) return;
+
+        if (autoFollowLatest) {
+            autoFollowLatest = false;
+            Platform.runLater(() -> {
+                toggleScrollBtn.setText("🛑 Auto-Follow: OFF");
+                toggleScrollBtn.setStyle("-fx-background-color: #e74c3c; -fx-text-fill: white; -fx-font-weight: bold;");
+            });
+        }
+
+        Platform.runLater(() -> {
+            try {
+                Alert alert = new Alert(Alert.AlertType.INFORMATION);
+                alert.setTitle("Log Entry Inspector");
+                alert.setHeaderText("Detailed Unabridged Log Message View:");
+
+                String msgContent = selected.messageProperty().get();
+                if (msgContent == null) msgContent = "No log details available.";
+
+                TextArea textArea = new TextArea(msgContent);
+                textArea.setEditable(false);
+                textArea.setWrapText(true);
+                textArea.setPrefWidth(650);
+                textArea.setPrefHeight(350);
+                textArea.setStyle("-fx-font-family: 'Courier New'; -fx-font-size: 12px;");
+
+                VBox contentWrapper = new VBox(textArea);
+                VBox.setVgrow(textArea, ALWAYS);
+                contentWrapper.setPadding(new Insets(5));
+
+                alert.getDialogPane().setContent(contentWrapper);
+                alert.getDialogPane().setMinHeight(Region.USE_PREF_SIZE);
+                alert.showAndWait();
+            } catch (Exception ex) {
+                ex.printStackTrace();
+            }
+        });
     }
 
     public void initializeView(Stage stage) {
-        // --- Generate Programmatic Vector Icon ---
-        try {
-            Canvas canvas = new Canvas(128, 128);
-            GraphicsContext gc = canvas.getGraphicsContext2D();
-
-            gc.setFill(Color.web("#2c3e50"));
-            gc.fillRoundRect(8, 8, 112, 112, 24, 24);
-
-            gc.setStroke(Color.web("#34495e"));
-            gc.setLineWidth(3);
-            gc.strokeRoundRect(8, 8, 112, 112, 24, 24);
-
-            gc.setStroke(Color.web("#2ecc71"));
-            gc.setLineWidth(8);
-            gc.setLineCap(StrokeLineCap.ROUND);
-            gc.setLineJoin(StrokeLineJoin.ROUND);
-
-            gc.beginPath();
-            gc.moveTo(35, 40);
-            gc.lineTo(60, 55);
-            gc.lineTo(35, 70);
-            gc.stroke();
-
-            gc.fillRect(70, 64, 25, 8);
-
-            gc.setFill(Color.web("#3498db"));
-            gc.fillRect(35, 88, 60, 6);
-
-            gc.setFill(Color.web("#e67e22"));
-            gc.fillRect(35, 98, 35, 6);
-
-            WritableImage appIcon = new WritableImage(128, 128);
-            canvas.snapshot(null, appIcon);
-            stage.getIcons().add(appIcon);
-
-        } catch (Exception e) {
-            System.err.println("Failed to render vector icon: " + e.getMessage());
-        }
-
-        // --- Top Control Ribbon ---
+        // --- Top Control Ribbon Header Layout ---
         HBox topBar = new HBox(15);
         topBar.setPadding(new Insets(15));
         topBar.setAlignment(CENTER_LEFT);
@@ -94,15 +104,20 @@ public class DashboardView extends BorderPane {
         titleLabel.setStyle("-fx-text-fill: white; -fx-font-weight: bold;");
         Button startBtn = new Button("▶ Start Engine");
         Button stopBtn = new Button("■ Stop Engine");
-        engineStatusLabel = new Label("Status: Checking...");
-        engineStatusLabel.setStyle("-fx-text-fill: #bdc3c7;");
-        activeFileLabel = new Label("No folder monitored");
+
+        engineStatusLabel = new Label("Status: Active");
+        engineStatusLabel.setStyle("-fx-text-fill: #2ecc71; -fx-font-weight: bold;");
+
+        activeFileLabel = new Label("Monitoring: test-logs");
         activeFileLabel.setStyle("-fx-text-fill: #f1c40f; -fx-font-style: italic;");
         Button chooseFileBtn = new Button("📁 Watch Folder...");
 
-        topBar.getChildren().addAll(titleLabel, startBtn, stopBtn, engineStatusLabel, chooseFileBtn, activeFileLabel);
+        toggleScrollBtn = new Button("🔄 Auto-Follow: ON");
+        toggleScrollBtn.setStyle("-fx-background-color: #2ecc71; -fx-text-fill: white; -fx-font-weight: bold;");
 
-        // --- Sidebar Analytics Panel ---
+        topBar.getChildren().addAll(titleLabel, startBtn, stopBtn, engineStatusLabel, chooseFileBtn, toggleScrollBtn, activeFileLabel);
+
+        // --- Sidebar Summary Panel ---
         VBox sidebar = new VBox(15);
         sidebar.setPadding(new Insets(20));
         sidebar.setPrefWidth(220);
@@ -118,94 +133,179 @@ public class DashboardView extends BorderPane {
         sidebarCardContainer.getChildren().add(errorCard);
 
         metrics.errorCountProperty().addListener((obs, old, newVal) ->
-                errorCountLabel.setText("🚨 Errors: " + newVal)
+                Platform.runLater(() -> errorCountLabel.setText("🚨 Errors: " + newVal))
         );
 
-        // Dynamic Tag Input Field Setup
         VBox customTagBox = new VBox(8);
         TextField customTagField = new TextField();
-        customTagField.setPromptText("e.g., FATAL, WARN, INFO");
+        customTagField.setPromptText("e.g., FATAL, WARN");
         Button addTagBtn = new Button("➕ Add Metric Card");
         addTagBtn.setMaxWidth(Double.MAX_VALUE);
-        addTagBtn.setOnAction(e -> metrics.registerTag(customTagField.getText()));
 
-        // Explicitly typed listener tracking map mutations cleanly to satisfy compiler parameters
-        MapChangeListener<String, javafx.beans.property.IntegerProperty> counterListener = change -> {
+        metrics.getCustomCounters().addListener((MapChangeListener<String, javafx.beans.property.IntegerProperty>) change -> {
             if (change.wasAdded()) {
                 String tag = change.getKey();
                 javafx.beans.property.IntegerProperty valueProp = change.getValueAdded();
 
-                VBox newCard = new VBox(5);
-                newCard.setPadding(new Insets(10));
-                newCard.setStyle("-fx-background-color: white; -fx-background-radius: 6; -fx-border-color: #bdc3c7; -fx-border-radius: 6;");
-                Label newLabel = new Label("🏷️ " + tag + ": 0");
-                newLabel.setStyle("-fx-text-fill: #2c3e50; -fx-font-weight: bold;");
-                newCard.getChildren().add(newLabel);
-
-                valueProp.addListener((obs, old, newVal) ->
-                        Platform.runLater(() -> newLabel.setText("🏷️ " + tag + ": " + newVal))
-                );
-
                 Platform.runLater(() -> {
+                    VBox newCard = new VBox(5);
+                    newCard.setPadding(new Insets(10));
+                    newCard.setStyle("-fx-background-color: white; -fx-background-radius: 6; -fx-border-color: #bdc3c7; -fx-border-radius: 6;");
+                    Label newLabel = new Label("🏷️ " + tag + ": 0");
+                    newLabel.setStyle("-fx-text-fill: #2c3e50; -fx-font-weight: bold;");
+                    newCard.getChildren().add(newLabel);
+
+                    valueProp.addListener((obs, old, nv) -> Platform.runLater(() -> newLabel.setText("🏷️ " + tag + ": " + nv)));
                     sidebarCardContainer.getChildren().add(newCard);
                     customTagField.clear();
                 });
             }
-        };
-
-        metrics.getCustomCounters().addListener(counterListener);
+        });
+        addTagBtn.setOnAction(e -> metrics.registerTag(customTagField.getText()));
 
         customTagBox.getChildren().addAll(new Label("Track Custom Tag:"), customTagField, addTagBtn);
-        sidebar.getChildren().addAll(sidebarCardContainer, new Separator(), customTagBox);
 
-        // --- Center Panel Table ---
-        filteredLogData = new FilteredList<>(logData, p -> true);
+        VBox quickInspectBox = new VBox(5);
+        Button manualInspectBtn = new Button("🔍 Inspect Selected Row");
+        manualInspectBtn.setMaxWidth(Double.MAX_VALUE);
+        manualInspectBtn.setStyle("-fx-background-color: #3498db; -fx-text-fill: white; -fx-font-weight: bold;");
+        Label backupHint = new Label("Shortcut: Select line + Press SPACE");
+        backupHint.setStyle("-fx-font-size: 10px; -fx-text-fill: #7f8c8d;");
+        quickInspectBox.getChildren().addAll(manualInspectBtn, backupHint);
+
+        sidebar.getChildren().addAll(sidebarCardContainer, new Separator(), customTagBox, new Separator(), quickInspectBox);
+
+        // --- Center Stream Data Grid Layout ---
+        filteredLogData = new FilteredList<>(this.logData, p -> true);
         TableView<LogEntry> table = new TableView<>(filteredLogData);
         table.setEditable(true);
+        table.getSelectionModel().setSelectionMode(SelectionMode.SINGLE);
 
         TableColumn<LogEntry, Boolean> colMarked = new TableColumn<>("📌");
         colMarked.setCellValueFactory(d -> d.getValue().markedProperty());
-        colMarked.setCellFactory(c -> new CheckBoxTableCell<>());
+        colMarked.setCellFactory(c -> {
+            CheckBoxTableCell<LogEntry, Boolean> cell = new CheckBoxTableCell<>();
+            cell.setEditable(true);
+            return cell;
+        });
         colMarked.setEditable(true);
 
         TableColumn<LogEntry, String> colTime = new TableColumn<>("Timestamp");
         colTime.setCellValueFactory(d -> d.getValue().timestampProperty());
 
-        TableColumn<LogEntry, String> colLevel = new TableColumn<>("Level");
-        colLevel.setCellValueFactory(d -> d.getValue().levelProperty());
+        TableColumn<LogEntry, String> colService = new TableColumn<>("Level");
+        colService.setCellValueFactory(d -> d.getValue().levelProperty());
 
         TableColumn<LogEntry, String> colMsg = new TableColumn<>("Message");
         colMsg.setCellValueFactory(d -> d.getValue().messageProperty());
-        colMsg.setPrefWidth(350);
+        colMsg.setPrefWidth(550);
+        colMsg.setCellFactory(column -> new TableCell<>() {
+            @Override
+            protected void updateItem(String item, boolean empty) {
+                super.updateItem(item, empty);
+                if (empty || item == null) {
+                    setText(null);
+                } else {
+                    if (item.contains("\n")) {
+                        setText(item.split("\n")[0] + "  [🔍 Multiline]");
+                    } else {
+                        setText(item);
+                    }
+                }
+            }
+        });
 
-        table.getColumns().addAll(colMarked, colTime, colLevel, colMsg);
+        table.getColumns().addAll(colMarked, colTime, colService, colMsg);
 
         TextField searchField = new TextField();
-        searchField.setPromptText("🔍 Quick filter text...");
+        searchField.setPromptText("🔍 Filter visible lines...");
         searchField.textProperty().addListener((obs, old, nv) -> filteredLogData.setPredicate(entry -> {
             if (nv == null || nv.trim().isEmpty()) return true;
             String f = nv.toLowerCase().trim();
-            if (":marked".equals(f) || ":pinned".equals(f)) return entry.isMarked();
-            return entry.messageProperty().get().toLowerCase().contains(f) ||
-                    entry.levelProperty().get().toLowerCase().contains(f) ||
-                    entry.loggerProperty().get().toLowerCase().contains(f);
+            return entry.messageProperty().get().toLowerCase().contains(f) || entry.levelProperty().get().toLowerCase().contains(f);
         }));
 
-        table.setRowFactory(tv -> new TableRow<>() {
-            @Override
-            protected void updateItem(LogEntry item, boolean empty) {
-                super.updateItem(item, empty);
-                if (empty || item == null) {
-                    setStyle("");
-                } else if (item.isMarked()) {
-                    setStyle("-fx-background-color: #e8daef; -fx-font-weight: bold;");
-                } else if ("ERROR".equals(item.levelProperty().get())) {
-                    setStyle("-fx-background-color: #fce4d6;");
-                } else if ("WARN".equals(item.levelProperty().get())) {
-                    setStyle("-fx-background-color: #fff2cc;");
-                } else {
-                    setStyle("");
+        table.setRowFactory(tv -> {
+            TableRow<LogEntry> row = new TableRow<>() {
+                private final Tooltip stackTraceTooltip = new Tooltip();
+
+                @Override
+                protected void updateItem(LogEntry item, boolean empty) {
+                    super.updateItem(item, empty);
+                    setTooltip(null);
+                    if (empty || item == null) {
+                        setStyle("");
+                        return;
+                    }
+
+                    if (item.isMarked()) setStyle("-fx-background-color: #e8daef; -fx-font-weight: bold;");
+                    else if ("ERROR".equals(item.levelProperty().get())) setStyle("-fx-background-color: #fce4d6;");
+                    else if ("WARN".equals(item.levelProperty().get())) setStyle("-fx-background-color: #fef9e7;");
+                    else setStyle("");
+
+                    String fullMessage = item.messageProperty().get();
+                    if (fullMessage != null && fullMessage.contains("\n")) {
+                        stackTraceTooltip.setText(fullMessage);
+                        stackTraceTooltip.setStyle("-fx-font-family: 'Courier New'; -fx-font-size: 12px; -fx-background-color: #2c3e50; -fx-text-fill: #ecf0f1;");
+                        setTooltip(stackTraceTooltip);
+                    }
                 }
+            };
+
+            row.setOnMouseClicked(event -> {
+                if (!row.isEmpty() && event.getClickCount() == 2) {
+                    LogEntry targetItem = row.getItem();
+                    if (targetItem != null) {
+                        openInspectorPopup(targetItem);
+                        event.consume();
+                    }
+                }
+            });
+
+            return row;
+        });
+
+        manualInspectBtn.setOnAction(e -> {
+            LogEntry selected = table.getSelectionModel().getSelectedItem();
+            if (selected != null) openInspectorPopup(selected);
+        });
+
+        table.setOnKeyPressed(keyEvent -> {
+            if (keyEvent.getCode() == javafx.scene.input.KeyCode.SPACE) {
+                LogEntry selected = table.getSelectionModel().getSelectedItem();
+                if (selected != null) {
+                    openInspectorPopup(selected);
+                    keyEvent.consume();
+                }
+            }
+        });
+
+        // --- Auto-Scroll Listener Pipeline ---
+        this.logData.addListener((javafx.collections.ListChangeListener<LogEntry>) change -> {
+            while (change.next()) {
+                if (change.wasAdded()) {
+                    int maxRows = config.getInt("ui.table.max-rows", 2000);
+                    if (this.logData.size() > maxRows) {
+                        Platform.runLater(() -> this.logData.remove(0, this.logData.size() - maxRows));
+                    }
+                    if (autoFollowLatest) {
+                        Platform.runLater(() -> table.scrollTo(table.getItems().size() - 1));
+                    }
+                }
+            }
+        });
+
+        toggleScrollBtn.setOnAction(e -> {
+            autoFollowLatest = !autoFollowLatest;
+            if (autoFollowLatest) {
+                toggleScrollBtn.setText("🔄 Auto-Follow: ON");
+                toggleScrollBtn.setStyle("-fx-background-color: #2ecc71; -fx-text-fill: white; -fx-font-weight: bold;");
+                if (!table.getItems().isEmpty()) {
+                    table.scrollTo(table.getItems().size() - 1);
+                }
+            } else {
+                toggleScrollBtn.setText("🛑 Auto-Follow: OFF");
+                toggleScrollBtn.setStyle("-fx-background-color: #e74c3c; -fx-text-fill: white; -fx-font-weight: bold;");
             }
         });
 
@@ -217,15 +317,11 @@ public class DashboardView extends BorderPane {
         this.setLeft(sidebar);
         this.setCenter(centerLayout);
 
-        // --- Action Configurations ---
-        startBtn.setOnAction(e -> dockerManager.executeCommand("docker start timberstrata"));
-        stopBtn.setOnAction(e -> dockerManager.executeCommand("docker stop timberstrata"));
-
         chooseFileBtn.setOnAction(e -> {
             DirectoryChooser chooser = new DirectoryChooser();
             File selected = chooser.showDialog(stage);
             if (selected != null) {
-                logData.clear();
+                this.logData.clear();
                 metrics.resetAll();
                 activeFileLabel.setText("Monitoring: " + selected.getName());
                 watcher.changeWatchedDirectory(selected);
