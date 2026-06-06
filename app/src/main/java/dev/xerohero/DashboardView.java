@@ -12,6 +12,7 @@ import javafx.scene.canvas.GraphicsContext;
 import javafx.scene.control.*;
 import javafx.scene.control.cell.CheckBoxTableCell;
 import javafx.scene.image.WritableImage;
+import javafx.scene.input.MouseEvent;
 import javafx.scene.layout.*;
 import javafx.scene.paint.Color;
 import javafx.stage.DirectoryChooser;
@@ -55,48 +56,44 @@ public class DashboardView extends BorderPane {
     private void openInspectorPopup(LogEntry selected) {
         if (selected == null) return;
 
-        // Both of these are already on the FX thread from the mouse click
-        autoFollowLatest = false;
-        toggleScrollBtn.setText("🛑 Auto-Follow: OFF");
-        toggleScrollBtn.setStyle("-fx-background-color: #e74c3c; -fx-text-fill: white; -fx-font-weight: bold;");
+        if (autoFollowLatest) {
+            autoFollowLatest = false;
+            Platform.runLater(() -> {
+                toggleScrollBtn.setText("🛑 Auto-Follow: OFF");
+                toggleScrollBtn.setStyle("-fx-background-color: #e74c3c; -fx-text-fill: white; -fx-font-weight: bold;");
+            });
+        }
 
-        Alert alert = new Alert(Alert.AlertType.INFORMATION);
-        alert.setTitle("Log Entry Inspector");
-        alert.setHeaderText("Detailed Unabridged Log Message View:");
+        Platform.runLater(() -> {
+            try {
+                Alert alert = new Alert(Alert.AlertType.INFORMATION);
+                alert.setTitle("Log Entry Inspector");
+                alert.setHeaderText("Detailed Unabridged Log Message View:");
 
-        String msgContent = selected.messageProperty().get();
-        if (msgContent == null) msgContent = "No log details available.";
+                String msgContent = selected.messageProperty().get();
+                if (msgContent == null) msgContent = "No log details available.";
 
-        TextArea textArea = new TextArea(msgContent);
-        textArea.setEditable(false);
-        textArea.setWrapText(true);
-        textArea.setPrefWidth(650);
-        textArea.setPrefHeight(350);
-        textArea.setStyle("-fx-font-family: 'Courier New'; -fx-font-size: 12px;");
+                TextArea textArea = new TextArea(msgContent);
+                textArea.setEditable(false);
+                textArea.setWrapText(true);
+                textArea.setPrefWidth(650);
+                textArea.setPrefHeight(350);
+                textArea.setStyle("-fx-font-family: 'Courier New'; -fx-font-size: 12px;");
 
-        VBox contentWrapper = new VBox(textArea);
-        VBox.setVgrow(textArea, ALWAYS);
-        contentWrapper.setPadding(new Insets(5));
+                VBox contentWrapper = new VBox(textArea);
+                VBox.setVgrow(textArea, ALWAYS);
+                contentWrapper.setPadding(new Insets(5));
 
-        alert.getDialogPane().setContent(contentWrapper);
-        alert.getDialogPane().setMinHeight(Region.USE_PREF_SIZE);
-        alert.showAndWait();
+                alert.getDialogPane().setContent(contentWrapper);
+                alert.getDialogPane().setMinHeight(Region.USE_PREF_SIZE);
+                alert.showAndWait();
+            } catch (Exception ex) {
+                ex.printStackTrace();
+            }
+        });
     }
 
     public void initializeView(Stage stage) {
-        System.out.println("🏁 [INIT ENTRY] Starting main dashboard view layout construction branch...");
-
-        // --- Dynamic Window Icon Generation ---
-        try {
-            Canvas canvas = new Canvas(128, 128);
-            GraphicsContext gc = canvas.getGraphicsContext2D();
-            gc.setFill(Color.web("#2c3e50"));
-            gc.fillRoundRect(8, 8, 112, 112, 24, 24);
-            WritableImage appIcon = new WritableImage(128, 128);
-            canvas.snapshot(null, appIcon);
-            stage.getIcons().add(appIcon);
-        } catch (Exception ignored) {}
-
         // --- Top Control Ribbon Header Layout ---
         HBox topBar = new HBox(15);
         topBar.setPadding(new Insets(15));
@@ -108,10 +105,10 @@ public class DashboardView extends BorderPane {
         Button startBtn = new Button("▶ Start Engine");
         Button stopBtn = new Button("■ Stop Engine");
 
-        engineStatusLabel = new Label("Status: Checking...");
-        engineStatusLabel.setStyle("-fx-text-fill: #bdc3c7;");
+        engineStatusLabel = new Label("Status: Active");
+        engineStatusLabel.setStyle("-fx-text-fill: #2ecc71; -fx-font-weight: bold;");
 
-        activeFileLabel = new Label("No folder monitored");
+        activeFileLabel = new Label("Monitoring: test-logs");
         activeFileLabel.setStyle("-fx-text-fill: #f1c40f; -fx-font-style: italic;");
         Button chooseFileBtn = new Button("📁 Watch Folder...");
 
@@ -135,7 +132,9 @@ public class DashboardView extends BorderPane {
         errorCard.getChildren().add(errorCountLabel);
         sidebarCardContainer.getChildren().add(errorCard);
 
-        metrics.errorCountProperty().addListener((obs, old, newVal) -> errorCountLabel.setText("🚨 Errors: " + newVal));
+        metrics.errorCountProperty().addListener((obs, old, newVal) ->
+                Platform.runLater(() -> errorCountLabel.setText("🚨 Errors: " + newVal))
+        );
 
         VBox customTagBox = new VBox(8);
         TextField customTagField = new TextField();
@@ -177,7 +176,7 @@ public class DashboardView extends BorderPane {
         sidebar.getChildren().addAll(sidebarCardContainer, new Separator(), customTagBox, new Separator(), quickInspectBox);
 
         // --- Center Stream Data Grid Layout ---
-        filteredLogData = new FilteredList<>(logData, p -> true);
+        filteredLogData = new FilteredList<>(this.logData, p -> true);
         TableView<LogEntry> table = new TableView<>(filteredLogData);
         table.setEditable(true);
         table.getSelectionModel().setSelectionMode(SelectionMode.SINGLE);
@@ -207,12 +206,25 @@ public class DashboardView extends BorderPane {
                 if (empty || item == null) {
                     setText(null);
                 } else {
-                    setText(item.contains("\n") ? item.split("\n")[0] + "  [🔍 Multiline]" : item);
+                    if (item.contains("\n")) {
+                        setText(item.split("\n")[0] + "  [🔍 Multiline]");
+                    } else {
+                        setText(item);
+                    }
                 }
             }
         });
 
-        // ✅ Row factory set BEFORE columns are added
+        table.getColumns().addAll(colMarked, colTime, colService, colMsg);
+
+        TextField searchField = new TextField();
+        searchField.setPromptText("🔍 Filter visible lines...");
+        searchField.textProperty().addListener((obs, old, nv) -> filteredLogData.setPredicate(entry -> {
+            if (nv == null || nv.trim().isEmpty()) return true;
+            String f = nv.toLowerCase().trim();
+            return entry.messageProperty().get().toLowerCase().contains(f) || entry.levelProperty().get().toLowerCase().contains(f);
+        }));
+
         table.setRowFactory(tv -> {
             TableRow<LogEntry> row = new TableRow<>() {
                 private final Tooltip stackTraceTooltip = new Tooltip();
@@ -238,47 +250,26 @@ public class DashboardView extends BorderPane {
                         setTooltip(stackTraceTooltip);
                     }
                 }
-                // ← no setOnMouseClicked here anymore
             };
+
+            row.setOnMouseClicked(event -> {
+                if (!row.isEmpty() && event.getClickCount() == 2) {
+                    LogEntry targetItem = row.getItem();
+                    if (targetItem != null) {
+                        openInspectorPopup(targetItem);
+                        event.consume();
+                    }
+                }
+            });
 
             return row;
         });
 
-        // ✅ Columns added AFTER row factory
-        table.getColumns().addAll(colMarked, colTime, colService, colMsg);
-
-        TextField searchField = new TextField();
-        searchField.setPromptText("🔍 Filter visible lines...");
-        searchField.textProperty().addListener((obs, old, nv) -> filteredLogData.setPredicate(entry -> {
-            if (nv == null || nv.trim().isEmpty()) return true;
-            String f = nv.toLowerCase().trim();
-            return entry.messageProperty().get().toLowerCase().contains(f) || entry.levelProperty().get().toLowerCase().contains(f);
-        }));
-
-        // --- Fallback & Keyboard Wire-Ups ---
         manualInspectBtn.setOnAction(e -> {
             LogEntry selected = table.getSelectionModel().getSelectedItem();
             if (selected != null) openInspectorPopup(selected);
         });
-        table.setOnMouseClicked(event -> {
-            if (event.getClickCount() == 2) {
-                TableRow<LogEntry> row = null;
-                // Walk up the scene graph from the click target to find the TableRow
-                javafx.scene.Node node = (javafx.scene.Node) event.getTarget();
-                while (node != null && !(node instanceof TableRow)) {
-                    node = node.getParent();
-                }
-                if (node instanceof TableRow) {
-                    @SuppressWarnings("unchecked")
-                    TableRow<LogEntry> typedRow = (TableRow<LogEntry>) node;
-                    LogEntry item = typedRow.getItem();
-                    if (item != null && !typedRow.isEmpty()) {
-                        openInspectorPopup(item);
-                        event.consume();
-                    }
-                }
-            }
-        });
+
         table.setOnKeyPressed(keyEvent -> {
             if (keyEvent.getCode() == javafx.scene.input.KeyCode.SPACE) {
                 LogEntry selected = table.getSelectionModel().getSelectedItem();
@@ -289,34 +280,13 @@ public class DashboardView extends BorderPane {
             }
         });
 
-        // --- Context Menu AI Hook Integration ---
-        ContextMenu contextMenu = new ContextMenu();
-        MenuItem explainItem = new MenuItem("🤖 Explain with TimberAI");
-        explainItem.setOnAction(event -> {
-            LogEntry selected = table.getSelectionModel().getSelectedItem();
-            if (selected != null) {
-                String logString = String.format("[%s] [%s] %s", selected.timestampProperty().get(), selected.levelProperty().get(), selected.messageProperty().get());
-                aiService.explainLogAsync(logString)
-                        .thenAccept(explanation -> Platform.runLater(() -> {
-                            Alert alert = new Alert(Alert.AlertType.INFORMATION);
-                            alert.setTitle("TimberAI Diagnostic Report");
-                            alert.setHeaderText("Log Context Analysis Summary");
-                            alert.setContentText(explanation);
-                            alert.getDialogPane().setMinHeight(Region.USE_PREF_SIZE);
-                            alert.showAndWait();
-                        }));
-            }
-        });
-        contextMenu.getItems().add(explainItem);
-        table.setContextMenu(contextMenu);
-
         // --- Auto-Scroll Listener Pipeline ---
-        logData.addListener((javafx.collections.ListChangeListener<LogEntry>) change -> {
+        this.logData.addListener((javafx.collections.ListChangeListener<LogEntry>) change -> {
             while (change.next()) {
                 if (change.wasAdded()) {
                     int maxRows = config.getInt("ui.table.max-rows", 2000);
-                    if (logData.size() > maxRows) {
-                        Platform.runLater(() -> logData.remove(0, logData.size() - maxRows));
+                    if (this.logData.size() > maxRows) {
+                        Platform.runLater(() -> this.logData.remove(0, this.logData.size() - maxRows));
                     }
                     if (autoFollowLatest) {
                         Platform.runLater(() -> table.scrollTo(table.getItems().size() - 1));
@@ -347,21 +317,16 @@ public class DashboardView extends BorderPane {
         this.setLeft(sidebar);
         this.setCenter(centerLayout);
 
-        startBtn.setOnAction(e -> dockerManager.executeCommand("docker start " + config.getString("docker.container.name", "timberstrata")));
-        stopBtn.setOnAction(e -> dockerManager.executeCommand("docker stop " + config.getString("docker.container.name", "timberstrata")));
-
         chooseFileBtn.setOnAction(e -> {
             DirectoryChooser chooser = new DirectoryChooser();
             File selected = chooser.showDialog(stage);
             if (selected != null) {
-                logData.clear();
+                this.logData.clear();
                 metrics.resetAll();
                 activeFileLabel.setText("Monitoring: " + selected.getName());
                 watcher.changeWatchedDirectory(selected);
             }
         });
-
-        System.out.println("✅ [INIT COMPLETE] Dashboard view layout execution sequence concluded successfully.");
     }
 
     public Label getEngineStatusLabel() { return engineStatusLabel; }
