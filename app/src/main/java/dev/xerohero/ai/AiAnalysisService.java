@@ -24,13 +24,15 @@ public class AiAnalysisService {
     }
 
     /**
-     * Sends a raw log trace line directly to the local Ollama instance on an asynchronous thread.
-     * Returns a CompletableFuture containing the raw structured string response markdown summary.
+     * Sends a log trace line directly to the local Ollama instance on an asynchronous thread.
+     * Returns a CompletableFuture containing the raw string response markdown summary.
      */
     public CompletableFuture<String> explainLogAsync(String rawLogLine) {
         String provider = config.getString("ai.provider", "ollama");
         String endpoint = config.getString("ai.endpoint", "http://localhost:11434/api/generate");
-        String model = config.getString("ai.model", "qwen2.5:3b");
+
+        // 🛠️ FIX 1: Default fallback configured directly to match your local llama3.2:3b registry
+        String model = config.getString("ai.model", "llama3.2:3b");
 
         // Guard clause ensuring configuration layout matches
         if (!"ollama".equalsIgnoreCase(provider)) {
@@ -41,11 +43,13 @@ public class AiAnalysisService {
         String systemPrompt = "You are a senior DevOps engineer. Explain this server error log concisely in two sentences and give a fix: ";
         String fullPrompt = systemPrompt + rawLogLine;
 
-        // Sanitize inner symbols to safeguard against broken JSON payloads
+        // 🛠️ FIX 2: Fully escape tabs, carriage returns, and newlines so multi-line
+        // stack traces won't break the enclosing raw JSON format rules.
         String escapedPrompt = fullPrompt.replace("\\", "\\\\")
                 .replace("\"", "\\\"")
-                .replace("\n", " ")
-                .replace("\r", " ");
+                .replace("\n", "\\n")
+                .replace("\r", "\\r")
+                .replace("\t", "\\t");
 
         // Ollama API request scheme ("stream": false forces a completed single text payload bundle)
         String jsonPayload = """
@@ -57,7 +61,7 @@ public class AiAnalysisService {
             "num_predict": %d
           }
         }
-        """.formatted(model, escapedPrompt, config.getInt("ai.max-tokens", 120));
+        """.formatted(model, escapedPrompt, config.getInt("ai.max-tokens", 150));
 
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(endpoint))
@@ -71,18 +75,37 @@ public class AiAnalysisService {
                     if (response.statusCode() == 200) {
                         return parseOllamaResponse(response.body());
                     } else {
-                        return "❌ Ollama returned an invalid HTTP state error code: " + response.statusCode();
+                        return "❌ Ollama returned an invalid HTTP state error code: " + response.statusCode() +
+                                "\nRequested Model Tag: " + model;
                     }
                 })
                 .exceptionally(ex -> "💥 Cannot connect to local Ollama. Is the daemon running? -> " + ex.getMessage());
     }
 
     /**
-     * Manually extracts the text within the "response" property key from the JSON payload.
-     * Avoids importing thick JSON marshalling libraries for simple string extractions.
+     * Defensive JSON extraction framework capturing both standard responses
+     * and explicit Ollama API error messages without crashing the thread context.
      */
     private String parseOllamaResponse(String jsonResponseBody) {
+        if (jsonResponseBody == null || jsonResponseBody.isBlank()) {
+            return "⚠️ Ollama returned an empty or null payload response bundle.";
+        }
+
         try {
+            // 🛠️ FIX 3: Intercept explicit error keys if Ollama pushes back due to missing assets
+            if (jsonResponseBody.contains("\"error\":")) {
+                int errIndex = jsonResponseBody.indexOf("\"error\":\"");
+                if (errIndex != -1) {
+                    int start = errIndex + 9;
+                    int end = jsonResponseBody.indexOf("\"", start);
+                    if (end != -1) {
+                        return "❌ Ollama Engine Error: " + jsonResponseBody.substring(start, end);
+                    }
+                }
+                return "❌ Ollama Engine Error: " + jsonResponseBody;
+            }
+
+            // Standard payload isolation logic loop
             int targetIndex = jsonResponseBody.indexOf("\"response\":\"");
             if (targetIndex != -1) {
                 int start = targetIndex + 12;
@@ -93,16 +116,20 @@ public class AiAnalysisService {
                     end = jsonResponseBody.indexOf("\"", end + 1);
                 }
 
-                if (end != -1) {
+                if (end != -1 && end > start) {
                     return jsonResponseBody.substring(start, end)
                             .replace("\\n", "\n")
                             .replace("\\\"", "\"")
-                            .replace("\\\\", "\\");
+                            .replace("\\\\", "\\")
+                            .replace("\\t", "\t");
                 }
             }
         } catch (Exception e) {
-            return "⚠️ Failed parsing local JSON response string data framework fields: " + e.getMessage();
+            System.err.println("💥 [CRITICAL PARSER CRASH] Failed to isolate JSON substrings safely:");
+            e.printStackTrace();
+            return "⚠️ Exception occurred parsing local response payload: " + e.getMessage();
         }
-        return "⚠️ Could not parse the local response structure cleanly. Check console output strings.";
+
+        return "⚠️ Could not extract message text. Raw Payload Context:\n" + jsonResponseBody;
     }
 }
