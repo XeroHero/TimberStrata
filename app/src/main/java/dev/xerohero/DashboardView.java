@@ -2,22 +2,23 @@ package dev.xerohero;
 
 import com.google.inject.Inject;
 import dev.xerohero.ai.AiAnalysisService;
+import javafx.animation.Animation;
+import javafx.animation.KeyFrame;
+import javafx.animation.Timeline;
 import javafx.application.Platform;
 import javafx.collections.MapChangeListener;
 import javafx.collections.ObservableList;
 import javafx.collections.transformation.FilteredList;
 import javafx.geometry.Insets;
-import javafx.scene.canvas.Canvas;
-import javafx.scene.canvas.GraphicsContext;
+import javafx.geometry.Pos;
 import javafx.scene.control.*;
 import javafx.scene.control.cell.CheckBoxTableCell;
-import javafx.scene.image.WritableImage;
-import javafx.scene.input.MouseEvent;
 import javafx.scene.layout.*;
-import javafx.scene.paint.Color;
 import javafx.stage.DirectoryChooser;
 import javafx.stage.Stage;
+import javafx.util.Duration;
 import java.io.File;
+import java.util.Random;
 
 import static javafx.geometry.Pos.CENTER_LEFT;
 import static javafx.scene.layout.Priority.ALWAYS;
@@ -40,6 +41,21 @@ public class DashboardView extends BorderPane {
     // Auto-Scroll States
     private boolean autoFollowLatest = true;
     private Button toggleScrollBtn;
+
+    // 🤖 Funny Claude-style thinking phrases
+    private final String[] thinkingPhrases = {
+            "Analyzing architectural life choices...",
+            "Inverting binary trees in memory...",
+            "Reticulating telemetry splines...",
+            "Blaming the network configuration...",
+            "Consulting stack overflow archives...",
+            "Deeply contemplating garbage collection overhead...",
+            "Aggressively parsing kernel panic states...",
+            "Applying microservice psychological counseling...",
+            "Re-indexing local container alignment space...",
+            "Loggering the logger's logs...",
+            "Chilling the brains..."
+    };
 
     @Inject
     public DashboardView(ObservableList<LogEntry> logData, MetricRegistry metrics,
@@ -94,7 +110,6 @@ public class DashboardView extends BorderPane {
     }
 
     public void initializeView(Stage stage) {
-        // --- Top Control Ribbon Header Layout ---
         HBox topBar = new HBox(15);
         topBar.setPadding(new Insets(15));
         topBar.setAlignment(CENTER_LEFT);
@@ -117,7 +132,6 @@ public class DashboardView extends BorderPane {
 
         topBar.getChildren().addAll(titleLabel, startBtn, stopBtn, engineStatusLabel, chooseFileBtn, toggleScrollBtn, activeFileLabel);
 
-        // --- Sidebar Summary Panel ---
         VBox sidebar = new VBox(15);
         sidebar.setPadding(new Insets(20));
         sidebar.setPrefWidth(220);
@@ -175,7 +189,6 @@ public class DashboardView extends BorderPane {
 
         sidebar.getChildren().addAll(sidebarCardContainer, new Separator(), customTagBox, new Separator(), quickInspectBox);
 
-        // --- Center Stream Data Grid Layout ---
         filteredLogData = new FilteredList<>(this.logData, p -> true);
         TableView<LogEntry> table = new TableView<>(filteredLogData);
         table.setEditable(true);
@@ -226,7 +239,7 @@ public class DashboardView extends BorderPane {
         }));
 
         table.setRowFactory(tv -> {
-            TableRow<LogEntry> row = new TableRow<>() {
+            TableRow<LogEntry> row = new TableRow<>(){
                 private final Tooltip stackTraceTooltip = new Tooltip();
 
                 @Override
@@ -251,6 +264,93 @@ public class DashboardView extends BorderPane {
                     }
                 }
             };
+
+            ContextMenu rowMenu = new ContextMenu();
+            MenuItem explainItem = new MenuItem("🤖 Explain with TimberAI");
+            explainItem.setOnAction(event -> {
+                LogEntry selected = row.getItem();
+                if (selected != null) {
+                    String logString = String.format("[%s] [%s] %s",
+                            selected.timestampProperty().get(),
+                            selected.levelProperty().get(),
+                            selected.messageProperty().get()
+                    );
+
+                    System.out.println("🧠 [AI TRIGGER] Dispatching payload to asynchronous analysis thread...");
+
+                    Alert alert = new Alert(Alert.AlertType.INFORMATION);
+                    alert.setTitle("TimberAI Diagnostic Report");
+                    alert.setHeaderText("Thinking...");
+
+                    ProgressIndicator progressIndicator = new ProgressIndicator(-1.0);
+                    progressIndicator.setPrefSize(50, 50);
+
+                    // Initial thinking tag label initialization
+                    Label loadingLabel = new Label("Initializing local model context layer...");
+                    loadingLabel.setStyle("-fx-text-fill: #2c3e50; -fx-font-weight: bold; -fx-font-size: 13px;");
+
+                    VBox loadingBox = new VBox(15, progressIndicator, loadingLabel);
+                    loadingBox.setAlignment(Pos.CENTER);
+                    loadingBox.setPadding(new Insets(30));
+                    loadingBox.setPrefWidth(550);
+                    loadingBox.setPrefHeight(350);
+
+                    alert.getDialogPane().setContent(loadingBox);
+                    alert.getDialogPane().setMinHeight(Region.USE_PREF_SIZE);
+
+                    // 🛠️ CLAUDE-STYLE REFRESH TIMELINE LOOP ANIMATION
+                    Random rand = new Random();
+                    Timeline thinkingTimeline = new Timeline(new KeyFrame(Duration.seconds(1.2), e -> {
+                        String freshPhrase = thinkingPhrases[rand.nextInt(thinkingPhrases.length)];
+                        loadingLabel.setText(freshPhrase);
+                    }));
+                    thinkingTimeline.setCycleCount(Animation.INDEFINITE);
+                    thinkingTimeline.play();
+
+                    aiService.explainLogAsync(logString)
+                            .thenAccept(explanation -> {
+                                System.out.println("✅ [AI RESPONSE RECEIVED] Payload back from worker thread. Updating UI context...");
+                                Platform.runLater(() -> {
+                                    // 🛠️ Stop the animation cycle completely to avoid memory resource leaks
+                                    thinkingTimeline.stop();
+
+                                    alert.setHeaderText("Log Context Analysis Summary");
+
+                                    TextArea textArea = new TextArea(explanation);
+                                    textArea.setEditable(false);
+                                    textArea.setWrapText(true);
+                                    textArea.setPrefWidth(550);
+                                    textArea.setPrefHeight(350);
+                                    textArea.setStyle("-fx-font-family: 'Helvetica Neue', Arial; -fx-font-size: 13px;");
+
+                                    alert.getDialogPane().setContent(textArea);
+                                });
+                            })
+                            .exceptionally(ex -> {
+                                Platform.runLater(() -> {
+                                    thinkingTimeline.stop();
+                                    System.err.println("💥 [CRITICAL BACKGROUND THREAD CRASH] The AI future pipeline failed:");
+                                    alert.setHeaderText("Analysis Pipeline Failure");
+                                    Label failureLabel = new Label("❌ Local AI processing failed or timed out.");
+                                    failureLabel.setStyle("-fx-text-fill: #c0392b; -fx-font-weight: bold;");
+                                    alert.getDialogPane().setContent(new VBox(failureLabel));
+                                    if (ex != null) ex.printStackTrace();
+                                });
+                                return null;
+                            });
+
+                    alert.showAndWait();
+                }
+            });
+            rowMenu.getItems().add(explainItem);
+
+            row.itemProperty().addListener((obs, oldVal, newVal) -> {
+                if (newVal != null) {
+                    row.setContextMenu(rowMenu);
+                } else {
+                    row.setContextMenu(null);
+                }
+            });
 
             row.setOnMouseClicked(event -> {
                 if (!row.isEmpty() && event.getClickCount() == 2) {
@@ -280,7 +380,6 @@ public class DashboardView extends BorderPane {
             }
         });
 
-        // --- Auto-Scroll Listener Pipeline ---
         this.logData.addListener((javafx.collections.ListChangeListener<LogEntry>) change -> {
             while (change.next()) {
                 if (change.wasAdded()) {

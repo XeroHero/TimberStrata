@@ -29,8 +29,8 @@ public class DashboardApp extends Application {
             LogDirectoryWatcher watcher = injector.getInstance(LogDirectoryWatcher.class);
 
             // Set up test data file target configuration out of the gate
-            watcher.changeWatchedDirectory(new File("/Users/lorenzobattilocchi/Git/TimberStrata/logs"));
-            watcher.startLoop();
+// 🛠️ UPDATE THIS PATH TO YOUR ACTUAL LOG GENERATOR OUTPUT FOLDER
+            watcher.changeWatchedDirectory(new File("/Users/lorenzobattilocchi/Git/TimberStrata/test-logs"));            watcher.startLoop();
 
             System.out.println("🖼️ [BOOTSTRAP] Mounting scene framing container wrapper...");
             Scene scene = new Scene(dashboardView, 1100, 750);
