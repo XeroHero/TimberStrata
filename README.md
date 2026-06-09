@@ -1,5 +1,9 @@
 # TimberStrata Engine
 
+<a href="https://devglobe.app/projects/timberstrata?utm_source=badge&utm_medium=embed" target="_blank" rel="noopener">
+  <img src="https://devglobe.app/badges/featured-on-devglobe-light.svg" alt="Featured on DevGlobe" width="250" height="54" />
+</a>
+
 A high-performance, containerized data-engineering pipeline built in Java 17 to ingest, monitor, and parse raw unstructured application logs into structured JSON objects in real time. 
 
 The architecture is fully decoupled, utilizing a lightweight multi-stage Docker configuration optimized for cross-platform deployments (including Apple Silicon and native Linux environments).
