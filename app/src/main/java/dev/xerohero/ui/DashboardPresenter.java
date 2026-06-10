@@ -8,6 +8,7 @@ import javafx.collections.transformation.FilteredList;
 import javafx.collections.transformation.SortedList;
 import javafx.stage.DirectoryChooser;
 import javafx.stage.Stage;
+import dev.xerohero.AppConfig;
 import dev.xerohero.DockerEngineManager;
 import dev.xerohero.log.LogEntry;
 import dev.xerohero.log.LogDirectoryWatcher;
@@ -27,20 +28,24 @@ public class DashboardPresenter {
     private final LogDirectoryWatcher logWatcher;
     private final ObservableList<LogEntry> rawLogBuffer;
     private final DockerEngineManager dockerManager;
+    private final AppConfig config;
 
     private boolean autoFollowEnabled = true;
+    private boolean isInitializing = true; // 🏆 FLAG: Prevents layout event side-effects during bootup
 
     @Inject
     public DashboardPresenter(DashboardView view,
                               DashboardModel model,
                               LogDirectoryWatcher logWatcher,
                               ObservableList<LogEntry> rawLogBuffer,
-                              DockerEngineManager dockerManager) {
+                              DockerEngineManager dockerManager,
+                              AppConfig config) {
         this.view = view;
         this.model = model;
         this.logWatcher = logWatcher;
         this.rawLogBuffer = rawLogBuffer;
         this.dockerManager = dockerManager;
+        this.config = config;
     }
 
     /**
@@ -62,6 +67,19 @@ public class DashboardPresenter {
         setupActionHandlers(stage);
         setupAutoScrollFollowPipeline();
         setupDockerStatusTracker();
+
+        this.isInitializing = false; // 🏆 Open operational pipeline gates for user actions
+    }
+
+    private void applyStyleTheme(Stage stage, String path) {
+        String externalUrl = getClass().getResource(path).toExternalForm();
+        if (stage.getScene() != null) {
+            stage.getScene().getStylesheets().clear();
+            stage.getScene().getStylesheets().add(externalUrl);
+        } else {
+            view.getStylesheets().clear();
+            view.getStylesheets().add(externalUrl);
+        }
     }
 
     /**
