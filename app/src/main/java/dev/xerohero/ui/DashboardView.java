@@ -6,7 +6,7 @@ import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.control.*;
 import javafx.scene.layout.*;
-import javafx.scene.text.TextFlow; // 🏆 Added explicit TextFlow import
+import javafx.scene.text.TextFlow;
 import dev.xerohero.log.LogEntry;
 
 /**
@@ -24,6 +24,7 @@ public class DashboardView extends BorderPane {
     private Button toggleScrollBtn;
     private Button manualInspectBtn;
     private Button addTagBtn;
+    private ToggleButton themeToggleBtn;
 
     private Button restartContainerBtn;
     private Button stopContainerBtn;
@@ -38,7 +39,7 @@ public class DashboardView extends BorderPane {
     private FlowPane metricsFlowPane;
 
     public DashboardView() {
-        this.setStyle("-fx-background-color: #f4f6f7;");
+        this.getStyleClass().add("root");
     }
 
     public void initializeLayout(SortedList<LogEntry> sortedData) {
@@ -54,12 +55,16 @@ public class DashboardView extends BorderPane {
         HBox.setHgrow(searchField, Priority.ALWAYS);
 
         regexToggle = new CheckBox("Use RegEx");
-        regexToggle.setStyle("-fx-font-weight: bold; -fx-text-fill: #2c3e50;");
+        regexToggle.setStyle("-fx-font-weight: bold;");
 
-        HBox topActionBar = new HBox(15, chooseFolderBtn, activeFileLabel, searchField, regexToggle);
+        themeToggleBtn = new ToggleButton("🌙 Dark Mode");
+        themeToggleBtn.setStyle("-fx-font-weight: bold;");
+
+        HBox topActionBar = new HBox(15, chooseFolderBtn, activeFileLabel, searchField, regexToggle, themeToggleBtn);
         topActionBar.setPadding(new Insets(15));
         topActionBar.setAlignment(Pos.CENTER_LEFT);
-        topActionBar.setStyle("-fx-background-color: white; -fx-effect: dropshadow(three-pass-box, rgba(0,0,0,0.05), 5, 0, 0, 1);");
+        topActionBar.getStyleClass().add("action-bar");
+        topActionBar.setStyle("-fx-effect: dropshadow(three-pass-box, rgba(0,0,0,0.05), 5, 0, 0, 1);");
         this.setTop(topActionBar);
 
         // 2. Central Table View Configuration
@@ -79,7 +84,6 @@ public class DashboardView extends BorderPane {
         colMsg.setCellValueFactory(cellData -> cellData.getValue().messageProperty());
         colMsg.setPrefWidth(650);
 
-        // 🏆 COMPACT ROW SIZE FACTORY WITH TEXTFLOW FIX
         colMsg.setCellFactory(column -> new TableCell<>() {
             @Override
             protected void updateItem(String item, boolean empty) {
@@ -91,15 +95,11 @@ public class DashboardView extends BorderPane {
                     setStyle("");
                 } else {
                     String lineToDisplay = item.contains("\n") ? item.split("\n")[0] + "  [🔍 Multiline]" : item;
-
-                    // 🏆 FIXED: Capturing as TextFlow instead of HBox to match LogStyleEngine signature
                     TextFlow colorizedLine = LogStyleEngine.tokenizeAndColorize(lineToDisplay);
 
-                    // Force strict vertical layout container clipping limits
                     colorizedLine.setMaxHeight(24);
                     colorizedLine.setPrefHeight(24);
 
-                    // Squash the master grid row boundaries completely
                     this.setMaxHeight(28);
                     this.setPrefHeight(28);
 
@@ -128,14 +128,15 @@ public class DashboardView extends BorderPane {
         centralContainer.setPadding(new Insets(15));
         this.setCenter(centralContainer);
 
-        // 4. Right Side Telemetry & Infrastructure Management Panel
+        // 4. Right Side Telemetry Panel
         VBox rightSidebar = new VBox(15);
         rightSidebar.setPadding(new Insets(15));
         rightSidebar.setPrefWidth(240);
-        rightSidebar.setStyle("-fx-background-color: white; -fx-border-color: #eaeded; -fx-border-width: 0 0 0 1;");
+        rightSidebar.getStyleClass().add("sidebar");
+        rightSidebar.setStyle("-fx-border-color: #eaeded; -fx-border-width: 0 0 0 1;");
 
         Label metricsHeader = new Label("SYSTEM TELEMETRY");
-        metricsHeader.setStyle("-fx-font-weight: bold; -fx-text-fill: #7f8c8d; -fx-font-size: 11px; -fx-letter-spacing: 1px;");
+        metricsHeader.setStyle("-fx-font-weight: bold; -fx-font-size: 11px; -fx-letter-spacing: 1px;");
 
         errorCountLabel = new Label("🚨 Errors: 0");
         errorCountLabel.setStyle("-fx-font-size: 15px; -fx-font-weight: bold; -fx-text-fill: #e74c3c;");
@@ -143,7 +144,7 @@ public class DashboardView extends BorderPane {
         Separator sep1 = new Separator();
 
         Label tagHeader = new Label("CUSTOM LOG WATCHER");
-        tagHeader.setStyle("-fx-font-weight: bold; -fx-text-fill: #7f8c8d; -fx-font-size: 11px;");
+        tagHeader.setStyle("-fx-font-weight: bold; -fx-font-size: 11px;");
 
         customTagField = new TextField();
         customTagField.setPromptText("Enter custom token (e.g. KAFKA)");
@@ -160,7 +161,7 @@ public class DashboardView extends BorderPane {
         Separator sep2 = new Separator();
 
         Label dockerHeader = new Label("ENGINE LIFECYCLE");
-        dockerHeader.setStyle("-fx-font-weight: bold; -fx-text-fill: #2c3e50; -fx-font-size: 11px; -fx-letter-spacing: 1px;");
+        dockerHeader.setStyle("-fx-font-weight: bold; -fx-font-size: 11px; -fx-letter-spacing: 1px;");
 
         dockerStatusLabel = new Label("🟢 RUNNING");
         dockerStatusLabel.setStyle("-fx-font-size: 14px; -fx-font-weight: bold; -fx-text-fill: #2ecc71;");
@@ -194,6 +195,10 @@ public class DashboardView extends BorderPane {
     public Button getToggleScrollBtn() { return toggleScrollBtn; }
     public Button getManualInspectBtn() { return manualInspectBtn; }
     public Button getAddTagBtn() { return addTagBtn; }
+
+    // 🏆 FIXED: Explicit theme toggle access hook restored to public boundary map
+    public ToggleButton getThemeToggleBtn() { return themeToggleBtn; }
+
     public Button getRestartContainerBtn() { return restartContainerBtn; }
     public Button getStopContainerBtn() { return stopContainerBtn; }
     public Label getDockerStatusLabel() { return dockerStatusLabel; }

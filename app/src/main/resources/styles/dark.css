@@ -1,0 +1,37 @@
+.root {
+    -fx-background-color: #1e1e24;
+    -fx-base: #1e1e24;
+}
+
+.action-bar, .sidebar {
+    -fx-background-color: #2a2a32;
+    -fx-border-color: #3f3f46;
+}
+
+.label {
+    -fx-text-fill: #e4e4e7;
+}
+
+.text-field {
+    -fx-background-color: #3f3f46;
+    -fx-text-fill: #ffffff;
+    -fx-prompt-text-fill: #a1a1aa;
+}
+
+.table-view {
+    -fx-background-color: #2a2a32;
+    -fx-base: #2a2a32;
+    -fx-control-inner-background: #2a2a32;
+}
+
+.table-row-cell:odd {
+    -fx-background-color: #2e2e38;
+}
+
+.table-row-cell:even {
+    -fx-background-color: #2a2a32;
+}
+
+.table-row-cell:filled:selected {
+    -fx-background-color: #007acc;
+}
