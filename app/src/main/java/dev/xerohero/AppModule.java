@@ -8,16 +8,13 @@ import javafx.collections.ObservableList;
 import dev.xerohero.log.LogEntry;
 import dev.xerohero.ai.AiAnalysisService;
 
-/**
- * Core Dependency Injection Module setting up system mappings across the application.
- */
 public class AppModule extends AbstractModule {
 
     @Override
     protected void configure() {
-        // 🏆 FORCE SINGLETON LIST PIPELINE BINDING:
-        // This explicitly forces Guice to distribute the exact same list instance
-        // to DashboardPresenter and LogDirectoryWatcher, bridging the data pipeline gap.
+        // 🏆 FORCE GUICE TO SHARE A SINGLE CONFIGPOOL EXTENSION OBJECT
+        bind(AppConfig.class).asEagerSingleton();
+
         bind(new com.google.inject.TypeLiteral<ObservableList<LogEntry>>() {})
                 .toInstance(FXCollections.observableArrayList());
     }
