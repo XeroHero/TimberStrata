@@ -1,6 +1,7 @@
 package dev.xerohero;
 
 import com.google.inject.Singleton;
+
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
@@ -30,7 +31,8 @@ public class AppConfig {
                 } else {
                     System.out.println("⚠️ No config.properties found. Using built-in defaults.");
                 }
-            } catch (IOException ignored) {}
+            } catch (IOException ignored) {
+            }
         }
     }
 
