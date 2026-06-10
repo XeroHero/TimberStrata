@@ -48,21 +48,16 @@ public class DashboardPresenter {
      * Hooks layout event listeners and setups the rendering pipeline wrapper tree.
      */
     public void bindView(Stage stage) {
-        System.out.println("🧪 [DEBUG] Injecting test lines directly into rawLogBuffer...");
-        rawLogBuffer.add(new LogEntry("2026-06-10 22:00:00", "INFO", "Direct UI buffer injection test line."));
-        rawLogBuffer.add(new LogEntry("2026-06-10 22:01:00", "ERROR", "If you see this, the UI grid works perfectly!"));
-
-        // 1. Construct reactive wrap layers for advanced search matching execution
         FilteredList<LogEntry> filteredData = new FilteredList<>(rawLogBuffer, p -> true);
         SortedList<LogEntry> sortedData = new SortedList<>(filteredData);
 
-        // 2. 🏆 SEQUENCE FIX: Instantiate layout nodes FIRST so view.getTable() is built
         view.initializeLayout(sortedData);
 
-        // 3. Bind properties once target nodes safely exist in memory
         sortedData.comparatorProperty().bind(view.getTable().comparatorProperty());
 
-        // 4. Register functional event listeners and automation loops
+        // Setup baseline default light theme style on load
+        applyStyleTheme(stage, "/styles/light.css");
+
         setupSearchEnginePredicate(filteredData);
         setupActionHandlers(stage);
         setupAutoScrollFollowPipeline();
@@ -70,11 +65,18 @@ public class DashboardPresenter {
     }
 
     /**
-     * Watches the DockerEngineManager state property to keep the UI synchronized.
+     * Replaces the global stage style sheet with a targeted look.
      */
+    private void applyStyleTheme(Stage stage, String path) {
+        if (stage.getScene() != null) {
+            stage.getScene().getStylesheets().clear();
+            String externalUrl = getClass().getResource(path).toExternalForm();
+            stage.getScene().getStylesheets().add(externalUrl);
+        }
+    }
+
     private void setupDockerStatusTracker() {
         updateDockerStatusUI(dockerManager.isRunning());
-
         dockerManager.runningProperty().addListener((observable, oldValue, isRunning) -> {
             Platform.runLater(() -> updateDockerStatusUI(isRunning));
         });
@@ -90,11 +92,18 @@ public class DashboardPresenter {
         }
     }
 
-    /**
-     * Registers active listener configurations for UI interactive control boundaries.
-     */
     private void setupActionHandlers(Stage stage) {
-        // Folder Chooser Navigation Button Context Interaction
+        // 🏆 Dynamic Style Toggle Action Hook
+        view.getThemeToggleBtn().setOnAction(event -> {
+            if (view.getThemeToggleBtn().isSelected()) {
+                view.getThemeToggleBtn().setText("☀️ Light Mode");
+                applyStyleTheme(stage, "/styles/dark.css");
+            } else {
+                view.getThemeToggleBtn().setText("🌙 Dark Mode");
+                applyStyleTheme(stage, "/styles/light.css");
+            }
+        });
+
         view.getChooseFolderBtn().setOnAction(event -> {
             DirectoryChooser directoryChooser = new DirectoryChooser();
             directoryChooser.setTitle("Select Active Target Log Directory");
@@ -109,7 +118,6 @@ public class DashboardPresenter {
             }
         });
 
-        // Toggle Auto-Follow Scroll Execution Constraints
         view.getToggleScrollBtn().setOnAction(event -> {
             autoFollowEnabled = !autoFollowEnabled;
             if (autoFollowEnabled) {
@@ -122,10 +130,8 @@ public class DashboardPresenter {
             }
         });
 
-        // Manual Frame Inspection Target Execution
         view.getManualInspectBtn().setOnAction(event -> triggerManualFrameSelectionInspection());
 
-        // Custom Metric Tag Event Processing Registration
         view.getAddTagBtn().setOnAction(event -> {
             String targetToken = view.getCustomTagField().getText();
             if (targetToken != null && !targetToken.strip().isEmpty()) {
@@ -138,14 +144,11 @@ public class DashboardPresenter {
             }
         });
 
-        // Docker Infrastructure Controls Trigger Listeners
         view.getRestartContainerBtn().setOnAction(event -> {
-            System.out.println("⚡ [UI EVENT] User triggered pipeline infrastructure restart command sequence.");
             dockerManager.restartContainer("timberstrata-core-service");
         });
 
         view.getStopContainerBtn().setOnAction(event -> {
-            System.out.println("⚠️ [UI EVENT] User dispatched SIGKILL execution termination vector to cluster.");
             dockerManager.stopContainer("timberstrata-core-service");
         });
     }
