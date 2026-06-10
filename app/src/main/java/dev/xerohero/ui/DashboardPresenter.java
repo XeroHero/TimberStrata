@@ -53,24 +53,15 @@ public class DashboardPresenter {
      * Hooks layout event listeners and setups the rendering pipeline wrapper tree.
      */
     public void bindView(Stage stage) {
-        this.isInitializing = true; // Lock down event listener executions
-
         FilteredList<LogEntry> filteredData = new FilteredList<>(rawLogBuffer, p -> true);
         SortedList<LogEntry> sortedData = new SortedList<>(filteredData);
 
         view.initializeLayout(sortedData);
+
         sortedData.comparatorProperty().bind(view.getTable().comparatorProperty());
 
-        // STARTUP OPERATION: Safely set initial state without triggering disk flushes
-        if (config.isDarkMode()) {
-            view.getThemeToggleBtn().setSelected(true);
-            view.getThemeToggleBtn().setText("☀️ Light Mode");
-            applyStyleTheme(stage, "/styles/dark.css");
-        } else {
-            view.getThemeToggleBtn().setSelected(false);
-            view.getThemeToggleBtn().setText("🌙 Dark Mode");
-            applyStyleTheme(stage, "/styles/light.css");
-        }
+        // Setup baseline default light theme style on load
+        applyStyleTheme(stage, "/styles/light.css");
 
         setupSearchEnginePredicate(filteredData);
         setupActionHandlers(stage);
@@ -88,6 +79,17 @@ public class DashboardPresenter {
         } else {
             view.getStylesheets().clear();
             view.getStylesheets().add(externalUrl);
+        }
+    }
+
+    /**
+     * Replaces the global stage style sheet with a targeted look.
+     */
+    private void applyStyleTheme(Stage stage, String path) {
+        if (stage.getScene() != null) {
+            stage.getScene().getStylesheets().clear();
+            String externalUrl = getClass().getResource(path).toExternalForm();
+            stage.getScene().getStylesheets().add(externalUrl);
         }
     }
 
@@ -109,15 +111,9 @@ public class DashboardPresenter {
     }
 
     private void setupActionHandlers(Stage stage) {
-        // Dynamic Style Toggle Action Hook synced to local AppConfig state
+        // 🏆 Dynamic Style Toggle Action Hook
         view.getThemeToggleBtn().setOnAction(event -> {
-            // 🏆 FIX: Drop out immediately if the engine is only running internal boot steps
-            if (isInitializing) return;
-
-            boolean selectedState = view.getThemeToggleBtn().isSelected();
-            config.setDarkMode(selectedState);
-
-            if (selectedState) {
+            if (view.getThemeToggleBtn().isSelected()) {
                 view.getThemeToggleBtn().setText("☀️ Light Mode");
                 applyStyleTheme(stage, "/styles/dark.css");
             } else {
