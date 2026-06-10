@@ -1,48 +1,47 @@
 package dev.xerohero;
 
 import com.google.inject.Guice;
-import com.google.inject.Injector;
+import com.google.inject.Inject;
+import dev.xerohero.ui.DashboardPresenter;
+import dev.xerohero.ui.DashboardView;
+import dev.xerohero.ui.DashboardModel;
 import javafx.application.Application;
-import javafx.collections.ObservableList;
 import javafx.scene.Scene;
 import javafx.stage.Stage;
 
-import java.io.File;
-
 public class DashboardApp extends Application {
+
+    @Inject
+    private DashboardView dashboardView;
+
+    @Inject
+    private DashboardPresenter dashboardPresenter;
+
+    @Override
+    public void init() throws Exception {
+        // Bootstraps the Guice DI container and injects fields cleanly
+        Guice.createInjector(new TimberStrataModule()).injectMembers(this);
+    }
 
     @Override
     public void start(Stage primaryStage) {
-        System.out.println("🚀 [BOOTSTRAP] Initializing dependency injection graph context...");
-
         try {
-            Injector injector = Guice.createInjector(new AppModule());
+            // Let the presenter wire up layout structures, filters, and background AI engines
+            dashboardPresenter.bindView(primaryStage);
 
-            System.out.println("📦 [BOOTSTRAP] Resolving fortified DashboardView container instance...");
-            DashboardView dashboardView = injector.getInstance(DashboardView.class);
+            // 🛑 FIXING ERROR (36, 37): JavaFX Scene expects (Parent), or (Parent, width, height)
+            // Passing integers directly without floating decimals can confuse overloaded constructors.
+            Scene scene = new Scene(dashboardView, 1024.0, 768.0);
 
-            System.out.println("🔧 [BOOTSTRAP] Passing Stage context down to view layout initializer...");
-            dashboardView.initializeView(primaryStage);
-
-            // --- SINGLE ATOMIC LIFECYCLE HOOK TRIGGER ---
-            System.out.println("⚙️ [BOOTSTRAP] Launching Log Engine structural daemon pipeline...");
-            LogDirectoryWatcher watcher = injector.getInstance(LogDirectoryWatcher.class);
-
-            // Set up test data file target configuration out of the gate
-            watcher.changeWatchedDirectory(new File("/Users/lorenzobattilocchi/Git/TimberStrata/logs"));
-            watcher.startLoop();
-
-            System.out.println("🖼️ [BOOTSTRAP] Mounting scene framing container wrapper...");
-            Scene scene = new Scene(dashboardView, 1100, 750);
             primaryStage.setScene(scene);
-            primaryStage.setTitle("🌲 TimberStrata Analysis Station");
-
-            System.out.println("🖥️ [BOOTSTRAP] Displaying application primary stage context.");
+            primaryStage.setTitle("TimberStrata Core Management Console");
+            primaryStage.setMinWidth(900.0);
+            primaryStage.setMinHeight(600.0);
             primaryStage.show();
 
-        } catch (Exception ex) {
-            System.err.println("💥 [CRITICAL APP CRASH] Dependency Injection or View instantiation pipeline failed:");
-            ex.printStackTrace();
+        } catch (Exception e) {
+            System.err.println("💥 [FATAL APPLICATION BOOT ERROR] Failed to display console layout:");
+            e.printStackTrace();
         }
     }
 

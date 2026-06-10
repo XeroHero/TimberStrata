@@ -1,10 +1,7 @@
 package dev.xerohero;
 
-import java.awt.Taskbar;
+import java.awt.*;
 import java.awt.image.BufferedImage;
-import java.awt.Graphics2D;
-import java.awt.Color;
-import java.awt.RenderingHints;
 
 public class RunGui {
     public static void main(String[] args) {

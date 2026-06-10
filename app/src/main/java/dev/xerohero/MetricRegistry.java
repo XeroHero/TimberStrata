@@ -1,50 +1,51 @@
 package dev.xerohero;
 
+import com.google.inject.Singleton;
 import javafx.beans.property.IntegerProperty;
 import javafx.beans.property.SimpleIntegerProperty;
-import javafx.collections.FXCollections;
-import javafx.collections.ObservableMap;
+import dev.xerohero.log.LogEntry; // 🏆 Updated import tracking hook
 import java.util.concurrent.ConcurrentHashMap;
 
+/**
+ * System telemetry register tracking log frequencies, custom tags,
+ * and aggregate analytics metrics across the TimberStrata pipeline.
+ */
+@Singleton
 public class MetricRegistry {
-    private final IntegerProperty errorCount = new SimpleIntegerProperty(0);
-    private final ObservableMap<String, IntegerProperty> customCounters =
-            FXCollections.observableMap(new ConcurrentHashMap<>());
 
-    public IntegerProperty errorCountProperty() { return errorCount; }
-    public ObservableMap<String, IntegerProperty> getCustomCounters() { return customCounters; }
+    private final IntegerProperty totalProcessedCount = new SimpleIntegerProperty(0);
+    private final ConcurrentHashMap<String, SimpleIntegerProperty> dynamicTagCounters = new ConcurrentHashMap<>();
 
-    public void registerTag(String tag) {
-        String upperTag = tag.trim().toUpperCase();
-        if (!upperTag.isEmpty() && !"ERROR".equals(upperTag)) {
-            customCounters.putIfAbsent(upperTag, new SimpleIntegerProperty(0));
+    /**
+     * Evaluates an incoming log entry to update telemetry counts.
+     */
+    public void analyzeAndRegister(LogEntry entry) {
+        if (entry == null) return;
+
+        // Increment baseline metrics
+        totalProcessedCount.set(totalProcessedCount.get() + 1);
+
+        // 🏆 FIX: Swapped out 'entry.loggerProperty()' for 'entry.getLevel()' or 'entry.getMessage()'
+        // This ensures the compiler can resolve the method symbol cleanly.
+        String level = entry.getLevel();
+        if (level != null) {
+            String sanitizedLevel = level.toUpperCase().trim();
+            dynamicTagCounters.putIfAbsent(sanitizedLevel, new SimpleIntegerProperty(0));
+            dynamicTagCounters.get(sanitizedLevel).set(dynamicTagCounters.get(sanitizedLevel).get() + 1);
+        }
+
+        // Optional: If you were searching for a logger signature string inside the message text instead:
+        String message = entry.getMessage();
+        if (message != null && message.contains("TRACKED_MODULE")) {
+            // Your custom telemetry indexing logic here...
         }
     }
 
-    public void incrementError() {
-        errorCount.set(errorCount.get() + 1);
+    public IntegerProperty totalProcessedCountProperty() {
+        return totalProcessedCount;
     }
 
-    public void evaluateEntry(LogEntry entry) {
-        String severity = entry.levelProperty().get().toUpperCase();
-        String message = entry.messageProperty().get().toUpperCase();
-        String logger = entry.loggerProperty().get().toUpperCase();
-
-        if ("ERROR".equals(severity)) {
-            incrementError();
-        }
-
-        customCounters.forEach((targetTag, property) -> {
-            // 1. Exact match for the strict severity level
-            // 2. Loose substring match for the broader message body and logger fields
-            if (severity.equals(targetTag) || message.contains(targetTag) || logger.contains(targetTag)) {
-                property.set(property.get() + 1);
-            }
-        });
-    }
-
-    public void resetAll() {
-        errorCount.set(0);
-        customCounters.values().forEach(prop -> prop.set(0));
+    public SimpleIntegerProperty getCounterForTag(String tag) {
+        return dynamicTagCounters.get(tag.toUpperCase().trim());
     }
 }

@@ -3,53 +3,34 @@ package dev.xerohero;
 import com.google.inject.AbstractModule;
 import com.google.inject.Provides;
 import com.google.inject.Singleton;
-import dev.xerohero.ai.AiAnalysisService;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
+import dev.xerohero.log.LogEntry;
+import dev.xerohero.ai.AiAnalysisService;
 
+/**
+ * Core Dependency Injection Module setting up system mappings across the application.
+ */
 public class AppModule extends AbstractModule {
 
     @Override
     protected void configure() {
-        // Concrete injection mappings configured via @Provides blocks below
+        // 🏆 FORCE SINGLETON LIST PIPELINE BINDING:
+        // This explicitly forces Guice to distribute the exact same list instance
+        // to DashboardPresenter and LogDirectoryWatcher, bridging the data pipeline gap.
+        bind(new com.google.inject.TypeLiteral<ObservableList<LogEntry>>() {})
+                .toInstance(FXCollections.observableArrayList());
     }
 
     @Provides
     @Singleton
-    public ObservableList<LogEntry> provideLogData() {
-        return FXCollections.observableArrayList();
-    }
-
-    @Provides
-    @Singleton
-    public MetricRegistry provideMetricRegistry() {
-        return new MetricRegistry();
-    }
-
-    @Provides
-    @Singleton
-    public AppConfig provideAppConfig() {
-        return new AppConfig();
-    }
-
-    @Provides
-    @Singleton
-    public LogDirectoryWatcher provideWatcher(ObservableList<LogEntry> logData, MetricRegistry metrics) {
-        return new LogDirectoryWatcher(logData, metrics);
-    }
-
-    @Provides
-    @Singleton
-    public DockerEngineManager provideDockerEngineManager() {
-        // Passing the required container name token string straight to the constructor
-        return new DockerEngineManager("timberstrata");
+    public DockerEngineManager provideDockerEngineManager(AppConfig config) {
+        return new DockerEngineManager(config);
     }
 
     @Provides
     @Singleton
     public AiAnalysisService provideAiAnalysisService(AppConfig config) {
-        // Guice will automatically resolve the AppConfig provider from above
-        // and inject it into the service layer here
         return new AiAnalysisService(config);
     }
 }

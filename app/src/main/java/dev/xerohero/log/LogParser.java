@@ -1,4 +1,4 @@
-package dev.xerohero;
+package dev.xerohero.log;
 
 import java.util.HashMap;
 import java.util.Map;
